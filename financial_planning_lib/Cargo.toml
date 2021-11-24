@@ -1,0 +1,12 @@
+[package]
+name = "financial_planning_lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thousands = "0.2.0"
+
+[dev-dependencies]
+itertools = "0.10.1"
+maplit = "1.0.2"
+anyhow = "1.0.45"
