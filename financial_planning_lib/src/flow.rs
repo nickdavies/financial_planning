@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::asset::{CategoryValue, Money, Rate, Tx};
+use crate::lookup_table::LookupTable;
 use crate::tax::TaxPolicy;
 use crate::time::{Frequency, Time};
 
@@ -68,6 +69,34 @@ impl FlowValue for RateFlow {
     }
 }
 
+#[derive(Debug)]
+pub struct TableFlow {
+    pub table: LookupTable<Time, Money>,
+}
+
+impl FlowValue for TableFlow {
+    fn value_at(&self, time: &Time, _: &Flow, _: &CategoryValue) -> Result<Money> {
+        self.table
+            .value_at(time)
+            .context("failed to get rate from table")
+    }
+}
+
+#[derive(Debug)]
+pub struct RateTableFlow {
+    pub table: LookupTable<Time, Rate>,
+}
+
+impl FlowValue for RateTableFlow {
+    fn value_at(&self, time: &Time, _: &Flow, category: &CategoryValue) -> Result<Money> {
+        Ok(category.value().at_rate(
+            self.table
+                .value_at(time)
+                .context("failed to get rate from table")?,
+        ))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -75,7 +104,7 @@ mod test {
 
     use crate::asset::{Asset, AssetName, Category, CategoryName};
     use crate::tax::{TaxPolicy, TaxTx};
-    use crate::time::{Month, Time, TimeNext, Year};
+    use crate::time::{Month, Time, TimeNext, TimeRange, Year};
 
     #[derive(Debug)]
     struct MockTax {}
@@ -117,6 +146,82 @@ mod test {
             }),
             tax_policy: Box::new(MockTax {}),
         }
+    }
+
+    fn test_value<F: FlowValue>(
+        fv: &F,
+        test_flow: &Flow,
+        time: &Time,
+        asset_value: Money,
+        expected_value: Money,
+    ) -> Result<()> {
+        assert_eq!(
+            (
+                &time,
+                asset_value,
+                fv.value_at(
+                    &time,
+                    &test_flow,
+                    &Category::from_assets(
+                        CategoryName("unittest".to_string()),
+                        vec![Asset {
+                            name: AssetName("unit test asset".to_string()),
+                            value: asset_value,
+                        }]
+                    )
+                    .value(),
+                )
+                .unwrap()
+            ),
+            (&time, asset_value, expected_value),
+        );
+        Ok(())
+    }
+
+    enum TestType {
+        // This only varies by time not value
+        ByTime(Vec<(Time, Money)>),
+        // This only varies by asset value not time
+        ByValue(Vec<(Money, Money)>),
+        // Varies by both asset value and time
+        ByBoth(Vec<(Time, Money, Money)>),
+    }
+
+    fn verify_value_at<F: FlowValue>(fv: &F, test_flow: &Flow, test: TestType) -> Result<()> {
+        // Test variance by time
+        match test {
+            TestType::ByTime(cases) => {
+                for (time, expected_value) in cases {
+                    test_value(fv, test_flow, &time, Money::from_dollars(0), expected_value)?;
+                    test_value(
+                        fv,
+                        test_flow,
+                        &time,
+                        Money::from_dollars(200),
+                        expected_value,
+                    )?;
+                }
+            }
+            TestType::ByValue(cases) => {
+                for (asset_value, expected_value) in cases {
+                    test_value(fv, test_flow, &test_flow.start, asset_value, expected_value)?;
+                    test_value(
+                        fv,
+                        test_flow,
+                        &test_flow.start.next().next().next(),
+                        asset_value,
+                        expected_value,
+                    )?;
+                }
+            }
+            TestType::ByBoth(cases) => {
+                for (time, asset_value, expected_value) in cases {
+                    test_value(fv, test_flow, &time, asset_value, expected_value)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -212,44 +317,34 @@ mod test {
         };
 
         let test_flow = test_flow();
-        assert_eq!(
-            fv.value_at(
-                &test_flow.start,
-                &test_flow,
-                &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            )
-            .unwrap(),
-            Money::from_dollars(100),
-        );
-
-        // Should not depend on time
-        assert_eq!(
-            fv.value_at(
-                &test_flow.start.next(),
-                &test_flow,
-                &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            )
-            .unwrap(),
-            Money::from_dollars(100),
-        );
-
-        // Or on asset value
-        assert_eq!(
-            fv.value_at(
-                &test_flow.start.next(),
-                &test_flow,
-                &Category::from_assets(
-                    CategoryName("unittest".to_string()),
-                    vec![Asset {
-                        name: AssetName("unit test asset".to_string()),
-                        value: Money::from_dollars(500)
-                    }]
-                )
-                .value(),
-            )
-            .unwrap(),
-            Money::from_dollars(100),
-        );
+        verify_value_at(
+            &fv,
+            &test_flow,
+            TestType::ByTime(vec![
+                (test_flow.start.clone(), Money::from_dollars(100)),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::August,
+                    },
+                    Money::from_dollars(100),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::September,
+                    },
+                    Money::from_dollars(100),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::December,
+                    },
+                    Money::from_dollars(100),
+                ),
+            ]),
+        )?;
 
         test_applies_at(&fv)
     }
@@ -261,44 +356,225 @@ mod test {
         };
 
         let test_flow = test_flow();
-        assert_eq!(
-            fv.value_at(
-                &test_flow.start,
-                &test_flow,
-                &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            )
-            .unwrap(),
-            Money::from_dollars(0),
-        );
+        verify_value_at(
+            &fv,
+            &test_flow,
+            TestType::ByValue(vec![
+                (Money::from_dollars(0), Money::from_dollars(0)),
+                (Money::from_dollars(1), Money::from_cents(5)),
+                (Money::from_dollars(200), Money::from_dollars(10)),
+            ]),
+        )?;
 
-        // Should not depend on time
-        assert_eq!(
-            fv.value_at(
-                &test_flow.start.next(),
-                &test_flow,
-                &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            )
-            .unwrap(),
-            Money::from_dollars(0),
-        );
+        test_applies_at(&fv)
+    }
 
-        // But does depend on asset value
-        assert_eq!(
-            fv.value_at(
-                &test_flow.start.next(),
-                &test_flow,
-                &Category::from_assets(
-                    CategoryName("unittest".to_string()),
-                    vec![Asset {
-                        name: AssetName("unit test asset".to_string()),
-                        value: Money::from_dollars(200)
-                    }]
-                )
-                .value(),
-            )
+    #[test]
+    fn test_table_flow() -> Result<()> {
+        let fv = TableFlow {
+            table: LookupTable::new(vec![
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::July,
+                        },
+                        end: Time {
+                            year: Year(2021),
+                            month: Month::September,
+                        },
+                    },
+                    Money::from_dollars(10),
+                ),
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::September,
+                        },
+                        end: Time {
+                            year: Year(2021),
+                            month: Month::November,
+                        },
+                    },
+                    Money::from_dollars(20),
+                ),
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::November,
+                        },
+                        end: Time {
+                            year: Year(2025),
+                            month: Month::January,
+                        },
+                    },
+                    Money::from_dollars(30),
+                ),
+            ])
             .unwrap(),
-            Money::from_dollars(10),
-        );
+        };
+
+        let test_flow = test_flow();
+        verify_value_at(
+            &fv,
+            &test_flow,
+            TestType::ByTime(vec![
+                (test_flow.start.clone(), Money::from_dollars(10)),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::August,
+                    },
+                    Money::from_dollars(10),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::September,
+                    },
+                    Money::from_dollars(20),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::December,
+                    },
+                    Money::from_dollars(30),
+                ),
+            ]),
+        )?;
+
+        test_applies_at(&fv)
+    }
+
+    #[test]
+    fn test_rate_table_flow() -> Result<()> {
+        let fv = RateTableFlow {
+            table: LookupTable::new(vec![
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::July,
+                        },
+                        end: Time {
+                            year: Year(2021),
+                            month: Month::September,
+                        },
+                    },
+                    Rate::from_percent(50),
+                ),
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::September,
+                        },
+                        end: Time {
+                            year: Year(2021),
+                            month: Month::November,
+                        },
+                    },
+                    Rate::from_percent(100),
+                ),
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::November,
+                        },
+                        end: Time {
+                            year: Year(2025),
+                            month: Month::January,
+                        },
+                    },
+                    Rate::from_percent(0),
+                ),
+            ])
+            .unwrap(),
+        };
+
+        let test_flow = test_flow();
+        verify_value_at(
+            &fv,
+            &test_flow,
+            TestType::ByBoth(vec![
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::August,
+                    },
+                    Money::from_dollars(0),
+                    Money::from_dollars(0),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::August,
+                    },
+                    Money::from_dollars(20),
+                    Money::from_dollars(10),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::August,
+                    },
+                    Money::from_dollars(30),
+                    Money::from_dollars(15),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::September,
+                    },
+                    Money::from_dollars(0),
+                    Money::from_dollars(0),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::September,
+                    },
+                    Money::from_dollars(50),
+                    Money::from_dollars(50),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::September,
+                    },
+                    Money::from_dollars(20),
+                    Money::from_dollars(20),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::December,
+                    },
+                    Money::from_dollars(0),
+                    Money::from_dollars(0),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::December,
+                    },
+                    Money::from_dollars(100),
+                    Money::from_dollars(0),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::December,
+                    },
+                    Money::from_dollars(150),
+                    Money::from_dollars(0),
+                ),
+            ]),
+        )?;
 
         test_applies_at(&fv)
     }
