@@ -1,4 +1,5 @@
-use std::collections::BTreeMap;
+use anyhow::{anyhow, Context, Result};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::asset::{Category, CategoryName, CategoryValue, Money, Tx};
 use crate::flow::{Flow, FlowName};
@@ -36,13 +37,38 @@ impl Model {
         categories: Vec<Category>,
         tax_policy: Box<dyn AnnualTaxPolicy>,
         tax_category: CategoryName,
-    ) -> Self {
-        Self {
+    ) -> Result<Self> {
+        let out = Self {
             flows,
             categories,
             tax_policy,
             tax_category,
+        };
+        out.validate().context("Provided inputs were invalid")?;
+        Ok(out)
+    }
+
+    fn validate(&self) -> Result<()> {
+        let valid_cats: BTreeSet<&CategoryName> = self.categories.iter().map(|c| &c.name).collect();
+        if !valid_cats.contains(&self.tax_category) {
+            return Err(anyhow!(
+                "Tax category \"{}\" was not found in provided categories. Options are {:?}",
+                self.tax_category.0,
+                itertools::join(valid_cats.iter().map(|c| &c.0), ", "),
+            ));
         }
+
+        for (cat_name, flows) in &self.flows {
+            if !valid_cats.contains(&cat_name) {
+                return Err(anyhow!(
+                    "Flows ({}) found with unknown cateogry \"{}\". Options are {:?}",
+                    itertools::join(flows.iter().map(|f| &f.name.0), ", "),
+                    cat_name.0,
+                    itertools::join(valid_cats.iter().map(|c| &c.0), ", "),
+                ));
+            }
+        }
+        Ok(())
     }
 
     fn run_year<'year, 'model: 'year>(
@@ -300,7 +326,8 @@ mod test {
             vec![c1.clone(), c2.clone()],
             Box::new(tax_policy),
             tax_category,
-        );
+        )
+        .context("failed to build model")?;
 
         let mut out = model.run(TimeRange {
             start: Year(2020),
