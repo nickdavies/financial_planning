@@ -14,14 +14,20 @@ pub struct Model {
     tax_category: CategoryName,
 }
 
+pub type CategoriesSnapshot = BTreeMap<CategoryName, Money>;
+
 #[derive(Debug)]
 pub struct ModelReport {
     pub years: BTreeMap<Year, YearlyReport>,
+    pub start_values: CategoriesSnapshot,
+    pub end_values: CategoriesSnapshot,
 }
 
 #[derive(Debug)]
 pub struct YearlyReport {
     pub category_summary: BTreeMap<CategoryName, BTreeMap<Month, MonthlyReport>>,
+    pub start_values: CategoriesSnapshot,
+    pub end_values: CategoriesSnapshot,
     pub tax_summary: TaxSummary,
     pub tax_adjustment: TaxAdjustment,
 }
@@ -79,6 +85,7 @@ impl Model {
         tax_policy: &'year Box<dyn AnnualTaxPolicy>,
         tax_category: &'year CategoryName,
     ) -> YearlyReport {
+        let start_values = Self::values_summary(&category_values);
         let mut summary = BTreeMap::new();
         let mut tax_summary = TaxSummary::new();
 
@@ -115,6 +122,8 @@ impl Model {
 
         YearlyReport {
             category_summary: summary,
+            start_values,
+            end_values: Self::values_summary(&category_values),
             tax_summary,
             tax_adjustment: adjustment,
         }
@@ -126,6 +135,8 @@ impl Model {
             .iter()
             .map(|category| category.value())
             .collect();
+
+        let start_values = Self::values_summary(&category_values);
 
         let mut out = BTreeMap::new();
         for year in time_range.into_iter() {
@@ -139,7 +150,18 @@ impl Model {
             out.insert(year, report);
         }
 
-        ModelReport { years: out }
+        ModelReport {
+            years: out,
+            start_values,
+            end_values: Self::values_summary(&category_values),
+        }
+    }
+
+    fn values_summary(category_values: &Vec<CategoryValue>) -> CategoriesSnapshot {
+        category_values
+            .into_iter()
+            .map(|cv| (cv.name().clone(), cv.value()))
+            .collect()
     }
 }
 
@@ -336,6 +358,14 @@ mod test {
         });
         println!("{:#?}", out);
 
+        assert_eq!(
+            out.start_values,
+            btreemap! {
+                c1.name.clone() => Money::from_dollars(123),
+                c2.name.clone() => Money::from_dollars(456),
+            }
+        );
+
         let mut empty_year = vec![];
         for _ in 0..12 {
             empty_year.push((vec![], vec![]));
@@ -514,6 +544,35 @@ mod test {
         for (year, (prev_tax, tax_summary, tax_adjustment, mut data)) in values {
             let mut report = out.years.remove(&year).unwrap();
 
+            let test_start_values: CategoriesSnapshot = data
+                .iter()
+                .map(|(c, (m, _))| (c.clone(), m.clone()))
+                .collect();
+
+            // We calculate this here first before we remove the elemts but it's actually
+            // more useful to get the error messages from validate_year first so we only assert
+            // the starting state before doing that and assert the end state afterwards
+            let mut test_end_values: CategoriesSnapshot = data
+                .iter()
+                .map(|(c, (m, vs))| {
+                    (
+                        c.clone(),
+                        *m + vs
+                            .iter()
+                            .map(|(v, _)| {
+                                v.iter()
+                                    .map(|d| Money::from_dollars(*d).at_rate(net_rate))
+                                    .sum()
+                            })
+                            .sum(),
+                    )
+                })
+                .collect();
+            let end_v = test_end_values.get_mut(&c1.name).unwrap();
+            *end_v = end_v.clone() + prev_tax.unwrap_or(Money::from_dollars(0));
+
+            assert_eq!(test_start_values, report.start_values);
+
             let c1_report = report.category_summary.remove(&c1.name).unwrap();
             let c2_report = report.category_summary.remove(&c2.name).unwrap();
 
@@ -524,6 +583,8 @@ mod test {
             let (c2_start_value, c2_deltas) = data.remove(&c2.name).unwrap();
             verify_year(c2_report, c2_start_value, None, c2_deltas)
                 .context(format!("Failed to verify c2 {:?}", year))?;
+
+            assert_eq!(test_end_values, report.end_values);
 
             assert!(report.category_summary.is_empty());
 
@@ -558,6 +619,21 @@ mod test {
             );
         }
         assert!(out.years.is_empty());
+
+        assert_eq!(
+            out.end_values,
+            btreemap! {
+                c1.name => Money::from_dollars(123)
+                    + c1_yearly(0).at_rate(net_rate)
+                    + c1_yearly(0).at_rate(net_rate)
+                    + tax_2021
+                    + tax_2022,
+                c2.name => Money::from_dollars(456)
+                    + c2_yearly(true).at_rate(net_rate)
+                    + c2_yearly(false).at_rate(net_rate)
+                    + Money::from_dollars(5 + 60 + 60 + 700).at_rate(net_rate),
+            }
+        );
 
         Ok(())
     }
