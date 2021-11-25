@@ -116,7 +116,6 @@ impl std::fmt::Display for Rate {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct AssetName(pub String);
 
