@@ -279,7 +279,6 @@ impl Config {
         }
 
         for (asset_name, asset) in assets.assets.into_iter() {
-            println!("HERE: {:?}\n{:?}", asset, cat_map);
             match cat_map.get_mut(&asset.category) {
                 Some(new_assets) => {
                     new_assets.push(asset.build(asset_name).context("Failed to build asset")?)
