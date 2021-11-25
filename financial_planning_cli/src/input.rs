@@ -69,6 +69,7 @@ pub struct PlanCommon {
     pub tax_category: String,
     pub assets_file: PathBuf,
     pub flows_file: PathBuf,
+    pub times_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -94,17 +95,59 @@ pub struct Assets {
     assets: BTreeMap<String, AssetRaw>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(transparent)]
+pub struct TimesTable {
+    times: BTreeMap<String, TimeLiteral>,
+}
+
+impl TimesTable {
+    fn get_by_name(&self, name: &str) -> Result<Time> {
+        let lit = self.times.get(name).context(format!(
+            "Unknown named time \"{}\" options are {:?}",
+            name,
+            self.times.keys()
+        ))?;
+
+        lit.clone()
+            .try_into()
+            .context(format!("Failed to parse time for time \"{}\"", name))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct TimeRaw {
+#[serde(untagged)]
+pub enum TimeRaw {
+    Literal(TimeLiteral),
+    Named(String),
+}
+
+impl TimeRaw {
+    fn build(self, times_table: &TimesTable) -> Result<Time> {
+        Ok(match self {
+            Self::Literal(lit) => (&lit)
+                .try_into()
+                .context("failed to build time from literal")?,
+            Self::Named(name) => times_table
+                .get_by_name(&name)
+                .context("Failed to parse named time")?,
+        })
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TimeLiteral {
     year: u32,
     month: String,
 }
 
-impl TryFrom<TimeRaw> for Time {
+impl TryFrom<&TimeLiteral> for Time {
     type Error = anyhow::Error;
 
-    fn try_from(other: TimeRaw) -> Result<Self, Self::Error> {
+    fn try_from(other: &TimeLiteral) -> Result<Self, Self::Error> {
         Ok(Time {
             year: Year(other.year),
             month: other.month.parse().context("Failed to parse month")?,
@@ -176,15 +219,18 @@ pub struct FlowRaw {
 }
 
 impl FlowRaw {
-    fn build(self, name: String) -> Result<Flow> {
+    fn build(self, name: String, times_table: &TimesTable) -> Result<Flow> {
         Ok(Flow {
             name: FlowName(name),
             description: self.description,
             start: self
                 .start
-                .try_into()
+                .build(times_table)
                 .context("Failed to convert start time")?,
-            end: self.end.try_into().context("Failed to convert end time")?,
+            end: self
+                .end
+                .build(times_table)
+                .context("Failed to convert end time")?,
             frequency: self.frequency.parse().context("")?,
             value: self.value.try_into().context("")?,
             tax_policy: self.tax.try_into().context("")?,
@@ -199,16 +245,18 @@ pub struct Flows {
     flows: BTreeMap<String, FlowRaw>,
 }
 
-impl TryFrom<Flows> for BTreeMap<CategoryName, Vec<Flow>> {
-    type Error = anyhow::Error;
-
-    fn try_from(other: Flows) -> Result<Self, Self::Error> {
+impl Flows {
+    fn build(self, times_table: &TimesTable) -> Result<BTreeMap<CategoryName, Vec<Flow>>> {
         let mut out = BTreeMap::new();
 
-        for (flow_name, flow_raw) in other.flows.into_iter() {
+        for (flow_name, flow_raw) in self.flows.into_iter() {
             out.entry(CategoryName(flow_raw.category.clone()))
                 .or_insert_with(Vec::new)
-                .push(flow_raw.build(flow_name).context("Failed to build flow")?)
+                .push(
+                    flow_raw
+                        .build(flow_name.clone(), times_table)
+                        .context(format!("Failed to build flow \"{}\"", flow_name))?,
+                )
         }
 
         Ok(out)
@@ -220,6 +268,7 @@ pub struct Config {
     plan: Plan,
     assets: Assets,
     flows: Flows,
+    times_table: TimesTable,
 }
 
 impl Config {
@@ -261,7 +310,9 @@ impl Config {
                 .try_into()
                 .context("Failed to convert time range")?,
             Model::new(
-                self.flows.try_into().context("Failed to convert flows")?,
+                self.flows
+                    .build(&self.times_table)
+                    .context("Failed to convert flows")?,
                 categories,
                 self.plan
                     .tax
@@ -299,6 +350,10 @@ pub fn read_configs(plan_file: &Path) -> Result<Config> {
     Ok(Config {
         assets: load_subfile("assets", plan_file, &plan.common.assets_file)?,
         flows: load_subfile("flows", plan_file, &plan.common.flows_file)?,
+        times_table: match &plan.common.times_file {
+            Some(file) => load_subfile("times", plan_file, &file)?,
+            None => TimesTable::default(),
+        },
         plan,
     })
 }
