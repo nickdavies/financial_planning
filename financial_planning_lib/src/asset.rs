@@ -100,6 +100,23 @@ impl core::ops::Div<i64> for Rate {
     }
 }
 
+impl std::fmt::Display for Rate {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let remainder = self.0 % 100;
+        write!(
+            f,
+            "{}{}%",
+            self.0 / 100,
+            if remainder != 0 {
+                format!(".{:02}", remainder)
+            } else {
+                "".to_string()
+            }
+        )
+    }
+}
+
+
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct AssetName(pub String);
 
@@ -198,9 +215,15 @@ mod test {
     fn test_rate_basics() -> Result<()> {
         let r = Rate::from_percent(10);
         assert_eq!(r.0, 1000);
+        assert_eq!("10%".to_string(), format!("{}", r));
+
         let inv = r.inverse();
         assert_eq!(inv.0, 9000);
+        assert_eq!("90%".to_string(), format!("{}", inv));
         assert_eq!(r, r.inverse().inverse());
+
+        let r = Rate(1234);
+        assert_eq!("12.34%".to_string(), format!("{}", r));
         Ok(())
     }
 
