@@ -6,6 +6,7 @@ use crate::flow::{Flow, FlowName};
 use crate::tax::{AnnualTaxPolicy, TaxAdjustment, TaxSummary};
 use crate::time::{Month, TimeRange, Year};
 
+#[derive(Debug)]
 pub struct Model {
     categories: Vec<Category>,
     flows: BTreeMap<CategoryName, Vec<Flow>>,

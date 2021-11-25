@@ -1,4 +1,6 @@
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+use strum_macros::EnumString;
+
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, EnumString)]
 pub enum Month {
     January,
     February,
@@ -122,7 +124,7 @@ impl Months {
     }
 }
 
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, EnumString)]
 pub enum Frequency {
     Monthly,
     Quarterly,

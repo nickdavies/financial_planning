@@ -2,7 +2,7 @@ use crate::asset::{Money, Rate};
 use crate::flow::{FixedFlow, Flow, FlowName};
 use crate::time::{Frequency, Month, Time, TimeNext, Year};
 
-pub trait AnnualTaxPolicy {
+pub trait AnnualTaxPolicy: std::fmt::Debug {
     fn calculate_adjustment(
         &self,
         // The year in which this adjustment is for. The provided month is ignored
@@ -49,6 +49,7 @@ pub trait AnnualTaxPolicy {
     fn calculate_taxable_income(&self, summary: &TaxSummary) -> Money;
 }
 
+#[derive(Debug)]
 pub struct FixedRateTaxPolicy {
     rate: Rate,
     deductions: Money,
@@ -212,6 +213,7 @@ mod test {
 
     #[test]
     fn test_annual_generic() -> Result<()> {
+        #[derive(Debug)]
         struct Test {}
         impl AnnualTaxPolicy for Test {
             fn calculate_owed(&self, _: Money, _: &TaxSummary) -> Money {

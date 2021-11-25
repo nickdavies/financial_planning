@@ -5,6 +5,8 @@ edition = "2021"
 
 [dependencies]
 thousands = "0.2.0"
+strum_macros = { version = "0.23.1" }
+strum = "0.20.0"
 anyhow = "1.0.45"
 
 [dev-dependencies]
