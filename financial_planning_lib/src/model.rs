@@ -84,7 +84,7 @@ impl Model {
         flows: &mut BTreeMap<CategoryName, Vec<Flow>>,
         tax_policy: &'year Box<dyn AnnualTaxPolicy>,
         tax_category: &'year CategoryName,
-    ) -> YearlyReport {
+    ) -> Result<YearlyReport> {
         let start_values = Self::values_summary(&category_values);
         let mut summary = BTreeMap::new();
         let mut tax_summary = TaxSummary::new();
@@ -96,7 +96,11 @@ impl Model {
                     flows,
                 };
 
-                let model_output = cat_model.run(year.clone());
+                let model_output = cat_model.run(year.clone()).context(format!(
+                    "Failed to run model for category {:?} in year {}",
+                    category_value.name(),
+                    year.0
+                ))?;
                 summary.insert(category_value.name().clone(), model_output.clone());
 
                 for (
@@ -120,16 +124,16 @@ impl Model {
             .or_insert_with(Vec::new)
             .push(tax_flow);
 
-        YearlyReport {
+        Ok(YearlyReport {
             category_summary: summary,
             start_values,
             end_values: Self::values_summary(&category_values),
             tax_summary,
             tax_adjustment: adjustment,
-        }
+        })
     }
 
-    pub fn run(&mut self, time_range: TimeRange<Year>) -> ModelReport {
+    pub fn run(&mut self, time_range: TimeRange<Year>) -> Result<ModelReport> {
         let mut category_values: Vec<CategoryValue> = self
             .categories
             .iter()
@@ -146,15 +150,16 @@ impl Model {
                 &mut self.flows,
                 &self.tax_policy,
                 &self.tax_category,
-            );
+            )
+            .context(format!("Failed to run model for {}", year.0))?;
             out.insert(year, report);
         }
 
-        ModelReport {
+        Ok(ModelReport {
             years: out,
             start_values,
             end_values: Self::values_summary(&category_values),
-        }
+        })
     }
 
     fn values_summary(category_values: &Vec<CategoryValue>) -> CategoriesSnapshot {
@@ -172,13 +177,18 @@ pub struct CategoryModel<'iter, 'model> {
 }
 
 impl<'a, 'b: 'a> CategoryModel<'a, 'b> {
-    pub fn run(&mut self, year: Year) -> BTreeMap<Month, MonthlyReport> {
+    pub fn run(&mut self, year: Year) -> Result<BTreeMap<Month, MonthlyReport>> {
         let mut all_transactions = BTreeMap::new();
         for time in year.months() {
             let mut months_txns = BTreeMap::new();
             for flow in self.flows.iter() {
                 if flow.value.applies_at(&time, flow) {
-                    let tx = flow.calculate_transaction(&self.category_value, &time);
+                    let tx = flow
+                        .calculate_transaction(&self.category_value, &time)
+                        .context(format!(
+                            "Failed to calculate transaction for {:?} at {:?}",
+                            flow.name, time
+                        ))?;
                     months_txns.insert(flow.name.clone(), tx);
                 }
             }
@@ -193,7 +203,7 @@ impl<'a, 'b: 'a> CategoryModel<'a, 'b> {
                 },
             );
         }
-        all_transactions
+        Ok(all_transactions)
     }
 }
 
@@ -352,10 +362,12 @@ mod test {
         )
         .context("failed to build model")?;
 
-        let mut out = model.run(TimeRange {
-            start: Year(2020),
-            end: Year(2024),
-        });
+        let mut out = model
+            .run(TimeRange {
+                start: Year(2020),
+                end: Year(2024),
+            })
+            .unwrap();
         println!("{:#?}", out);
 
         assert_eq!(
@@ -686,7 +698,7 @@ mod test {
         };
 
         verify_year(
-            cat_model.run(Year(2021)),
+            cat_model.run(Year(2021)).unwrap(),
             Money::from_dollars(123),
             None,
             vec![

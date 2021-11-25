@@ -200,11 +200,13 @@ mod test {
         // Finally we make sure that the value is set correctly
         assert!(flow.value.applies_at(&flow.start, &flow));
         assert_eq!(
-            flow.value.value_at(
-                &flow.start,
-                &flow,
-                &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            ),
+            flow.value
+                .value_at(
+                    &flow.start,
+                    &flow,
+                    &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
+                )
+                .unwrap(),
             delta,
         );
 

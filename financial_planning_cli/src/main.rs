@@ -45,7 +45,7 @@ fn main() -> Result<()> {
             let (range, mut model) = config
                 .build_model()
                 .context("Failed to build model from configs")?;
-            let out = model.run(range);
+            let out = model.run(range).context("failed to run model")?;
             cmd_opts
                 .output_format
                 .output(out)

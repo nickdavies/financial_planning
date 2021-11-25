@@ -1,3 +1,5 @@
+use anyhow::{Context, Result};
+
 use crate::asset::{CategoryValue, Money, Rate, Tx};
 use crate::tax::TaxPolicy;
 use crate::time::{Frequency, Time};
@@ -17,15 +19,18 @@ pub struct Flow {
 }
 
 impl Flow {
-    pub fn calculate_transaction(&self, category: &CategoryValue, time: &Time) -> Tx {
-        let gross = self.value.value_at(&time, self, category);
+    pub fn calculate_transaction(&self, category: &CategoryValue, time: &Time) -> Result<Tx> {
+        let gross = self
+            .value
+            .value_at(&time, self, category)
+            .context("Failed to get value for flow")?;
         let (net, tax_tx) = self.tax_policy.calculate_tax(gross);
 
-        Tx {
+        Ok(Tx {
             time: time.clone(),
             amount: net,
             tax_tx,
-        }
+        })
     }
 }
 
@@ -38,7 +43,7 @@ pub trait FlowValue: std::fmt::Debug {
         }
     }
 
-    fn value_at(&self, time: &Time, flow: &Flow, category: &CategoryValue) -> Money;
+    fn value_at(&self, time: &Time, flow: &Flow, category: &CategoryValue) -> Result<Money>;
 }
 
 #[derive(Debug)]
@@ -47,8 +52,8 @@ pub struct FixedFlow {
 }
 
 impl FlowValue for FixedFlow {
-    fn value_at(&self, _: &Time, _: &Flow, _: &CategoryValue) -> Money {
-        self.value
+    fn value_at(&self, _: &Time, _: &Flow, _: &CategoryValue) -> Result<Money> {
+        Ok(self.value)
     }
 }
 
@@ -58,8 +63,8 @@ pub struct RateFlow {
 }
 
 impl FlowValue for RateFlow {
-    fn value_at(&self, _: &Time, _: &Flow, category: &CategoryValue) -> Money {
-        category.value().at_rate(self.rate)
+    fn value_at(&self, _: &Time, _: &Flow, category: &CategoryValue) -> Result<Money> {
+        Ok(category.value().at_rate(self.rate))
     }
 }
 
@@ -118,10 +123,12 @@ mod test {
     fn test_flow_basics() -> Result<()> {
         let f = test_flow();
 
-        let out = f.calculate_transaction(
-            &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            &f.start,
-        );
+        let out = f
+            .calculate_transaction(
+                &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
+                &f.start,
+            )
+            .unwrap();
 
         assert_eq!(out.time, f.start);
         assert_eq!(out.amount, Money::from_dollars(123 - 1));
@@ -190,7 +197,7 @@ mod test {
         #[derive(Debug)]
         struct Test {}
         impl FlowValue for Test {
-            fn value_at(&self, _: &Time, _: &Flow, _: &CategoryValue) -> Money {
+            fn value_at(&self, _: &Time, _: &Flow, _: &CategoryValue) -> Result<Money> {
                 panic!("Not implement for mock");
             }
         }
@@ -210,7 +217,8 @@ mod test {
                 &test_flow.start,
                 &test_flow,
                 &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            ),
+            )
+            .unwrap(),
             Money::from_dollars(100),
         );
 
@@ -220,7 +228,8 @@ mod test {
                 &test_flow.start.next(),
                 &test_flow,
                 &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            ),
+            )
+            .unwrap(),
             Money::from_dollars(100),
         );
 
@@ -237,7 +246,8 @@ mod test {
                     }]
                 )
                 .value(),
-            ),
+            )
+            .unwrap(),
             Money::from_dollars(100),
         );
 
@@ -256,7 +266,8 @@ mod test {
                 &test_flow.start,
                 &test_flow,
                 &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            ),
+            )
+            .unwrap(),
             Money::from_dollars(0),
         );
 
@@ -266,7 +277,8 @@ mod test {
                 &test_flow.start.next(),
                 &test_flow,
                 &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
-            ),
+            )
+            .unwrap(),
             Money::from_dollars(0),
         );
 
@@ -283,7 +295,8 @@ mod test {
                     }]
                 )
                 .value(),
-            ),
+            )
+            .unwrap(),
             Money::from_dollars(10),
         );
 
