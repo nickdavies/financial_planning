@@ -1,0 +1,18 @@
+[package]
+name = "financial_planning_cli"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+maplit = "1.0.2"
+toml = "0.5.8"
+serde = { version = "1.0.130", features = ["derive"]}
+structopt = "0.3"
+anyhow = "1.0.45"
+
+financial_planning_lib = { path = "../financial_planning_lib" }
+
+[dev-dependencies]
+itertools = "0.10.1"
