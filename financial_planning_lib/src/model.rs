@@ -34,7 +34,8 @@ pub struct YearlyReport {
 
 #[derive(Debug, Clone)]
 pub struct MonthlyReport {
-    pub value: Money,
+    pub start_value: Money,
+    pub end_value: Money,
     pub transactions: BTreeMap<FlowName, Tx>,
 }
 
@@ -103,14 +104,7 @@ impl Model {
                 ))?;
                 summary.insert(category_value.name().clone(), model_output.clone());
 
-                for (
-                    _,
-                    MonthlyReport {
-                        value: _,
-                        transactions,
-                    },
-                ) in model_output
-                {
+                for (_, MonthlyReport { transactions, .. }) in model_output {
                     for (_, tx) in transactions {
                         tax_summary.apply_tx(&tx.tax_tx, tx.amount);
                     }
@@ -180,6 +174,7 @@ impl<'a, 'b: 'a> CategoryModel<'a, 'b> {
     pub fn run(&mut self, year: Year) -> Result<BTreeMap<Month, MonthlyReport>> {
         let mut all_transactions = BTreeMap::new();
         for time in year.months() {
+            let start_value = self.category_value.value();
             let mut months_txns = BTreeMap::new();
             for flow in self.flows.iter() {
                 if flow.value.applies_at(&time, flow) {
@@ -198,7 +193,8 @@ impl<'a, 'b: 'a> CategoryModel<'a, 'b> {
             all_transactions.insert(
                 time.month.clone(),
                 MonthlyReport {
-                    value: self.category_value.value(),
+                    start_value,
+                    end_value: self.category_value.value(),
                     transactions: months_txns,
                 },
             );
@@ -294,15 +290,25 @@ mod test {
                 ));
             }
 
+            if report.start_value != value {
+                return Err(anyhow!(
+                    "Starting value was different for {} {:?}: {} vs {}",
+                    n,
+                    start,
+                    report.start_value,
+                    value,
+                ));
+            }
+
             value = value + delta;
-            if report.value != value {
+            if report.end_value != value {
                 return Err(anyhow!(
                     "Total value was different for {} {:?}:\n{} = {} + {:?}\n{} = {} + {:?}",
                     n,
                     start,
                     // report
-                    report.value,
-                    report.value - report_delta,
+                    report.end_value,
+                    report.end_value - report_delta,
                     flow_values,
                     // test values
                     value,
