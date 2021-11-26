@@ -1,0 +1,86 @@
+# This lists all of the incomming and outgoing flows
+# of money that you want to include in the model.
+# You don't explicitly need to add tax transactions as
+# those will be calculated for you (Based on the tax
+# policy provided here and in plan.toml)
+
+# Start with a section with some basic info
+["Person 1 Salary"]
+# A human readable description
+description = "Person 1's regular salary per month"
+# The category this flow will apply to. This doesn't
+# apply to individual assets but whole categories instead.
+# This minimizes the complexity with needing to transfer.
+# If you do want a transfer you will need to make a one-off
+# flow that subtracts from one and adds to another. This is
+# something we could make easier in the future if necessary
+category = "cash"
+
+# A start/end which can either be a explicit year and month or
+# it can be one of the named times in your times_file (see plan.toml
+# and times.toml for details)
+start = { year = 2022, month = "January" }
+end = "retirement"
+frequency = "Monthly"
+
+# You can use toml syntax for putting this under the value
+# object but you can also explicitly list it in the top block
+# if you want. An example of that is in the next flow
+["Person 1 Salary".value]
+# The different value types represent the various ways in which
+# a value of a flow can be defined. So far we support things like
+#  - fixed: An unchanging value like a fixed loan repayment
+#
+#  - rate: A percentage of the value of the flow. Useful for
+#          investments like the stock market or 401k etc.
+#
+#  - table: Read the value of this flow from a table. This is
+#           useful for known payments that vary over time
+#           eg. new stock vests or "house maintenance" which
+#           varies by year.
+#
+#  - table_rate: A combination of table and rate. This allows you
+#                to have a variable rate over time. This is useful
+#                for having say your stock growth changes get more
+#                concervative in later years.
+#
+# Each of these have their own parameters and for now the best place
+# to find out what those are is either to try it and you will get the
+# required fields listed to you or you can read
+# financial_planning_lib/src/input.rs specificially FlowValueRate enum
+type = "fixed"
+value = 5_000
+
+# Same thing for tax as value. You can list this in it's own section
+# or you can put it inside (example below). This block represents the
+# tax withholding and taxability of the income.
+["Person 1 Salary".tax]
+# The type of tax policies that you can have for a flow. They are listed
+# in financial_planning_lib/src/input.rs specificially FlowTaxPolicy enum.
+# As of writing this the following as supported:
+#
+#   - fixed_rate: A fixed tax rate of X% being withheld and all of the money
+#                 is taxable income. This is useful for things like stock
+#                 and bonuses which are taxed at some fixed rate.
+#
+#   - no_withholding: No tax is withheld but it's still all taxable income.
+#                     This is useful for things like investments which might
+#                     not hold tax for you
+#
+#   - tax_exempt: This marks the flow as non-taxable income eg tax payments,
+#                 some 401k flows etc.
+#
+# Right now some obvious ones are missing like tax withholding calculated
+# automatically for salaries, making negative flows tax exempt or even deductable
+# and others. If you need these feel free to make an issue or a PR.
+policy = "fixed_rate"
+rate = "35"
+
+["Person 1 401k growth"]
+description = "Person 1's normal 401k growth"
+category = "401k"
+start = { year = 2022, month = "January" }
+end = { year = 3000, month = "January" }
+frequency = "Monthly"
+value = { type = "rate_table", table_name = "401k growth" }
+tax = { policy = "tax_exempt" }

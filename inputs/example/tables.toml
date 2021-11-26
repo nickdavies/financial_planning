@@ -1,0 +1,26 @@
+# These are named tables with either Money or Rate values that can
+# be used in flows. You can either use this toml format with [[]]
+# or you can make them inline.
+#
+# NOTE: Due to how toml is formatted any tables that use the literal
+# syntax (like "table 2" below must come before any that use the [[]]
+# syntax.
+#
+# These tables don't have to be ordered in any way but you must make
+# them contiguous time ranges with no gaps or overlaps. The CLI will
+# verify that for you though.
+
+"table 2" = [
+ { start = { year = 2022, month = "January"}, end = "retirement", monthly_rate = "7.25" },
+ { start = "retirement", end = { year = 2050, month = "January"}, yearly_rate = "10%" }
+]
+
+[["401k growth"]]
+start = { year = 2022, month = "January" }
+end = "retirement"
+yearly_rate = "7"
+
+[["401k growth"]]
+start = "retirement"
+end = { year = 3000, month = "January" }
+yearly_rate = "4"

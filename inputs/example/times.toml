@@ -1,0 +1,6 @@
+# This file contains named points in time. This means that
+# you can have many flows that all depend on the same point
+# in time but not have to copy/paste or keep the dates in sync
+["retirement"]
+year = 2040
+month = "March"

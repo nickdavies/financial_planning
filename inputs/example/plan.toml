@@ -1,0 +1,38 @@
+# This file describes the top level view of the model input.
+# The first thing is time range of the model. For now we only
+# support whole years because tax gets hard otherwise but this
+# is something I'd like to improve in the future
+[time_range]
+start = 2022
+end = 2065
+
+# The annual tax policy for the model. This is used to calculate
+# your taxable income for the year and then any tax debt/refund
+# that you might get. For now we only support fixed_rate but I
+# would like to at least add encoding the current tax table into
+# a policy next.
+[tax]
+policy = "fixed_rate"
+rate = "30.5%"
+standard_deduction = 25100
+
+[common]
+# A list of all the known categories for the model. A category
+# is a grouping of assets that is used to simplify the accounting.
+# We don't need to track individual assets and transfers between
+# those and instead we can just assume those happen as neeed.
+# For example we don't need to know that you have both bank accounts
+# and stock that you regularly deposit into just that the total blob
+# of money there is growing at X%. To transfer between things you will
+# need to make a once off flow to subtract from one and add to another
+# tax exempt.
+categories = ["cash", "401k", "uninvested"]
+# Which category should tax debt/refund flows to into/out of
+tax_category = "cash"
+
+# Links to the other files in the model that hold all the various bits
+# of information needed.
+assets_file = "./assets.toml"
+flows_file = "./flows.toml"
+times_file = "./times.toml"
+tables_file = "./tables.toml"

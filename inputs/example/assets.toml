@@ -1,0 +1,27 @@
+# You can have many accounts/assets here.
+# They should be a snapshot of your position
+# at the start of the starting year.
+
+["bank account savings"]
+# The category of the assets. See the docs in plan.toml for
+# details.
+category = "cash"
+# You can put in _'s if you want to make the numbers easier to read
+# but it's entirely optional
+value = 10_000
+
+["bank account checking"]
+category = "cash"
+value = 5000
+
+["bank account savings - cash reserve"]
+category = "uninvested"
+value = 10000
+
+["person 1 401k"]
+category = "401k"
+value = 50000
+
+["person 2 401k"]
+category = "401k"
+value = 30_000
