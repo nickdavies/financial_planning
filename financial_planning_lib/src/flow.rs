@@ -366,6 +366,21 @@ mod test {
             ]),
         )?;
 
+        let fv = RateFlow {
+            // Test a much smaller monthly rate
+            rate: Rate::from_percent(8) / 12,
+        };
+
+        verify_value_at(
+            &fv,
+            &test_flow,
+            TestType::ByValue(vec![
+                (Money::from_dollars(0), Money::from_dollars(0)),
+                (Money::from_dollars(10), Money::from_cents(6)),
+                (Money::from_dollars(200), Money::from_cents(132)),
+            ]),
+        )?;
+
         test_applies_at(&fv)
     }
 

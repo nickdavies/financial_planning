@@ -26,7 +26,7 @@ impl Money {
     }
 
     pub fn at_rate(&self, rate: Rate) -> Money {
-        Money(self.0 * rate.0 / 10000)
+        rate.at_rate(*self)
     }
 }
 
@@ -66,11 +66,13 @@ impl core::ops::Div for Money {
     type Output = Rate;
 
     fn div(self, rhs: Self) -> Self::Output {
-        // We * 10000 here first * 100 because rate is a 2 decimal place value stored as an int.
-        // Then we * an addition 100 because we want it as a percentage.
+        // We construct the Rate first for the LHS because it will then internally store it with
+        // the max precision we allow. Then when we divide by the RHS then we will lose as little
+        // detail as possible.
         //
-        // Doing it this way and not using ::from_percent retains the maximum amount of precision
-        Rate((self.0 * 10000) / (rhs.0))
+        // If we divide the money first and then make it a rate we will usually round away huge
+        // amounts of precision and cause massive errors in the model.
+        Rate::from_percent(self.0 * 100) / rhs.0
     }
 }
 
@@ -89,8 +91,30 @@ impl Rate {
         Self(pct * 100)
     }
 
+    pub fn as_percent(&self) -> i64 {
+        self.0 / 100
+    }
+
     pub fn inverse(&self) -> Self {
-        Self(10000 - self.0)
+        Rate::from_percent(100) - *self
+    }
+
+    pub fn at_rate(&self, money: Money) -> Money {
+        Money(money.0 * self.0 / 100 / 100)
+    }
+}
+
+impl core::ops::Sub<Rate> for Rate {
+    type Output = Rate;
+    fn sub(self, rhs: Self) -> Self::Output {
+        Rate(self.0 - rhs.0)
+    }
+}
+
+impl core::ops::Div<i64> for Rate {
+    type Output = Rate;
+    fn div(self, rhs: i64) -> Self::Output {
+        Rate(self.0 / rhs)
     }
 }
 
@@ -114,13 +138,6 @@ impl std::str::FromStr for Rate {
             }
             None => Rate::from_percent(clean.parse()?),
         })
-    }
-}
-
-impl core::ops::Div<i64> for Rate {
-    type Output = Rate;
-    fn div(self, rhs: i64) -> Self::Output {
-        Rate(self.0 / rhs)
     }
 }
 
@@ -238,14 +255,17 @@ mod test {
     fn test_rate_basics() -> Result<()> {
         let r = Rate::from_percent(10);
         assert_eq!(r.0, 1000);
+        assert_eq!(r.as_percent(), 10);
         assert_eq!("10%".to_string(), format!("{}", r));
 
         let inv = r.inverse();
         assert_eq!(inv.0, 9000);
+        assert_eq!(inv.as_percent(), 90);
         assert_eq!("90%".to_string(), format!("{}", inv));
         assert_eq!(r, r.inverse().inverse());
 
         let r = Rate(1234);
+        assert_eq!(r.as_percent(), 12);
         assert_eq!("12.34%".to_string(), format!("{}", r));
         Ok(())
     }
@@ -305,6 +325,9 @@ mod test {
         let m_out = m.at_rate(r);
         assert_eq!(m_out.as_dollars(), 20);
 
+        let m_out = r.at_rate(m);
+        assert_eq!(m_out.as_dollars(), 20);
+
         // Test to prove we round well
         let m = Money::from_dollars(2);
         let r = Rate::from_percent(20);
@@ -313,6 +336,23 @@ mod test {
         assert_eq!(m_out.as_dollars(), 0);
         // Internally we should still see 40c
         assert_eq!(m_out.0, 40);
+
+        let m_out = r.at_rate(m);
+        // externally we truncate down to 0
+        assert_eq!(m_out.as_dollars(), 0);
+        // Internally we should still see 40c
+        assert_eq!(m_out.0, 40);
+
+        // Next test at_rate with tiny rates to make sure we don't
+        // truncate where we shouldn't.
+        let r = Rate::from_percent(1) / 10;
+        let m = Money::from_dollars(2000);
+        assert_eq!(m.at_rate(r), Money::from_dollars(2));
+        assert_eq!(r.at_rate(m), Money::from_dollars(2));
+
+        let m = Money::from_dollars(20);
+        assert_eq!(m.at_rate(r), Money::from_cents(2));
+        assert_eq!(r.at_rate(m), Money::from_cents(2));
 
         // Next we test if we can divide money and get rates
         assert_eq!(
