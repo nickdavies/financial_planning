@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 use financial_planning_lib::asset::{Asset, AssetName, Category, CategoryName, Money, Rate};
 use financial_planning_lib::flow::{FixedFlow, Flow, FlowName, FlowValue, RateFlow};
+use financial_planning_lib::lookup_table::LookupTable;
 use financial_planning_lib::model::Model;
 use financial_planning_lib::tax::{
     AnnualTaxPolicy, ConstantTaxPolicy, FixedRateTaxPolicy, NoWithholding, TaxExempt, TaxPolicy,
@@ -70,6 +71,7 @@ pub struct PlanCommon {
     pub assets_file: PathBuf,
     pub flows_file: PathBuf,
     pub times_file: Option<PathBuf>,
+    pub tables_file: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -263,12 +265,132 @@ impl Flows {
     }
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(untagged)]
+pub enum TableRaw {
+    Rate {
+        rate: i64,
+        start: TimeRaw,
+        end: TimeRaw,
+    },
+    Money {
+        dollars: i64,
+        start: TimeRaw,
+        end: TimeRaw,
+    },
+}
+
+trait Build<T> {
+    fn build(self, times_table: &TimesTable) -> Result<T>;
+}
+
+impl Build<(TimeRange<Time>, Rate)> for TableRaw {
+    fn build(self, times_table: &TimesTable) -> Result<(TimeRange<Time>, Rate)> {
+        match self {
+            Self::Rate { rate, start, end } => Ok((
+                TimeRange {
+                    start: start
+                        .build(times_table)
+                        .context("failed to build start time")?,
+                    end: end.build(times_table).context("failed to build end time")?,
+                },
+                Rate::from_percent(rate),
+            )),
+            Self::Money { .. } => Err(anyhow!("Asked to build a rate table but found money entry")),
+        }
+    }
+}
+
+impl Build<(TimeRange<Time>, Money)> for TableRaw {
+    fn build(self, times_table: &TimesTable) -> Result<(TimeRange<Time>, Money)> {
+        match self {
+            Self::Money {
+                dollars,
+                start,
+                end,
+            } => Ok((
+                TimeRange {
+                    start: start
+                        .build(times_table)
+                        .context("failed to build start time")?,
+                    end: end.build(times_table).context("failed to build end time")?,
+                },
+                Money::from_dollars(dollars),
+            )),
+            Self::Rate { .. } => Err(anyhow!("Asked to build a money table but found rate entry")),
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(transparent)]
+pub struct LookupTables {
+    tables: BTreeMap<String, Vec<TableRaw>>,
+}
+
+#[derive(Debug)]
+enum TableType {
+    Rate(LookupTable<Time, Rate>),
+    Money(LookupTable<Time, Money>),
+}
+
+impl LookupTables {
+    fn build_table<T>(
+        name: &str,
+        table_entries: Vec<TableRaw>,
+        times_table: &TimesTable,
+    ) -> Result<LookupTable<Time, T>>
+    where
+        TableRaw: Build<(TimeRange<Time>, T)>,
+        T: std::fmt::Debug + Clone,
+    {
+        let mut ranges = Vec::new();
+        for (i, entry) in itertools::enumerate(table_entries.into_iter()) {
+            ranges.push(
+                entry
+                    .build(times_table)
+                    .context(format!("Failed to build entry {} for table {}", i, name))?,
+            )
+        }
+        LookupTable::new(ranges).context(format!("failed to build table {}", name))
+    }
+
+    fn build(self, times_table: &TimesTable) -> Result<BTreeMap<String, TableType>> {
+        let mut out = BTreeMap::new();
+
+        for (name, table_entries) in self.tables {
+            let first = table_entries
+                .iter()
+                .next()
+                .context(format!("Table {} was somehow empty", name))?;
+            let table = match first {
+                TableRaw::Rate { .. } => TableType::Rate(
+                    Self::build_table(&name, table_entries, times_table).context(
+                        "failed to rate table (decided it was rate based on first entry)",
+                    )?,
+                ),
+                TableRaw::Money { .. } => TableType::Money(
+                    Self::build_table(&name, table_entries, times_table).context(
+                        "failed to money table (decided it was rate based on first entry)",
+                    )?,
+                ),
+            };
+            out.insert(name, table);
+        }
+
+        Ok(out)
+    }
+}
+
 #[derive(Debug)]
 pub struct Config {
     plan: Plan,
     assets: Assets,
     flows: Flows,
     times_table: TimesTable,
+    lookup_tables: BTreeMap<String, TableType>,
 }
 
 impl Config {
@@ -346,13 +468,21 @@ pub fn read_configs(plan_file: &Path) -> Result<Config> {
     )
     .context("Failed to parse plan config")?;
 
+    let times_table = match &plan.common.times_file {
+        Some(file) => load_subfile("times", plan_file, &file)?,
+        None => TimesTable::default(),
+    };
+    let lookup_tables = match &plan.common.tables_file {
+        Some(file) => LookupTables::build(load_subfile("tables", plan_file, &file)?, &times_table)
+            .context("failed to build lookup tables")?,
+        None => BTreeMap::new(),
+    };
+
     Ok(Config {
         assets: load_subfile("assets", plan_file, &plan.common.assets_file)?,
         flows: load_subfile("flows", plan_file, &plan.common.flows_file)?,
-        times_table: match &plan.common.times_file {
-            Some(file) => load_subfile("times", plan_file, &file)?,
-            None => TimesTable::default(),
-        },
+        times_table,
+        lookup_tables,
         plan,
     })
 }
