@@ -5,7 +5,9 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
 use financial_planning_lib::asset::{Asset, AssetName, Category, CategoryName, Money, Rate};
-use financial_planning_lib::flow::{FixedFlow, Flow, FlowName, FlowValue, RateFlow};
+use financial_planning_lib::flow::{
+    FixedFlow, Flow, FlowName, FlowValue, RateFlow, RateTableFlow, TableFlow,
+};
 use financial_planning_lib::lookup_table::LookupTable;
 use financial_planning_lib::model::Model;
 use financial_planning_lib::tax::{
@@ -165,18 +167,42 @@ pub enum FlowValueRaw {
     FixedFlow { value: i64 },
     #[serde(rename = "rate")]
     RateFlow { rate: i64 },
+    #[serde(rename = "table")]
+    TableFlow { table_name: String },
+    #[serde(rename = "rate_table")]
+    RateTableFlow { table_name: String },
 }
 
-impl TryFrom<FlowValueRaw> for Box<dyn FlowValue> {
-    type Error = anyhow::Error;
-
-    fn try_from(other: FlowValueRaw) -> Result<Self, Self::Error> {
-        Ok(match other {
-            FlowValueRaw::FixedFlow { value } => Box::new(FixedFlow {
+impl FlowValueRaw {
+    fn build(self, tables: &BTreeMap<String, TableType>) -> Result<Box<dyn FlowValue>> {
+        Ok(match self {
+            Self::FixedFlow { value } => Box::new(FixedFlow {
                 value: Money::from_dollars(value),
             }),
-            FlowValueRaw::RateFlow { rate } => Box::new(RateFlow {
+            Self::RateFlow { rate } => Box::new(RateFlow {
                 rate: Rate::from_percent(rate),
+            }),
+            Self::TableFlow { table_name } => Box::new(TableFlow {
+                table: match tables.get(&table_name) {
+                    Some(TableType::Money(t)) => t.clone(),
+                    Some(TableType::Rate(_)) => {
+                        return Err(anyhow!("Found table {} but it's a rate table not money table, did you mean to use rate_table?", table_name));
+                    }
+                    None => {
+                        return Err(anyhow!("Unknown table {}", table_name));
+                    }
+                },
+            }),
+            Self::RateTableFlow { table_name } => Box::new(RateTableFlow {
+                table: match tables.get(&table_name) {
+                    Some(TableType::Rate(t)) => t.clone(),
+                    Some(TableType::Money(_)) => {
+                        return Err(anyhow!("Found table {} but it's a money table not rate table, did you mean to use table?", table_name));
+                    }
+                    None => {
+                        return Err(anyhow!("Unknown table {}", table_name));
+                    }
+                },
             }),
         })
     }
@@ -221,7 +247,12 @@ pub struct FlowRaw {
 }
 
 impl FlowRaw {
-    fn build(self, name: String, times_table: &TimesTable) -> Result<Flow> {
+    fn build(
+        self,
+        name: String,
+        times_table: &TimesTable,
+        lookup_tables: &BTreeMap<String, TableType>,
+    ) -> Result<Flow> {
         Ok(Flow {
             name: FlowName(name),
             description: self.description,
@@ -234,7 +265,7 @@ impl FlowRaw {
                 .build(times_table)
                 .context("Failed to convert end time")?,
             frequency: self.frequency.parse().context("")?,
-            value: self.value.try_into().context("")?,
+            value: self.value.build(lookup_tables).context("")?,
             tax_policy: self.tax.try_into().context("")?,
         })
     }
@@ -248,7 +279,11 @@ pub struct Flows {
 }
 
 impl Flows {
-    fn build(self, times_table: &TimesTable) -> Result<BTreeMap<CategoryName, Vec<Flow>>> {
+    fn build(
+        self,
+        times_table: &TimesTable,
+        lookup_tables: &BTreeMap<String, TableType>,
+    ) -> Result<BTreeMap<CategoryName, Vec<Flow>>> {
         let mut out = BTreeMap::new();
 
         for (flow_name, flow_raw) in self.flows.into_iter() {
@@ -256,7 +291,7 @@ impl Flows {
                 .or_insert_with(Vec::new)
                 .push(
                     flow_raw
-                        .build(flow_name.clone(), times_table)
+                        .build(flow_name.clone(), times_table, lookup_tables)
                         .context(format!("Failed to build flow \"{}\"", flow_name))?,
                 )
         }
@@ -432,7 +467,7 @@ impl Config {
                 .context("Failed to convert time range")?,
             Model::new(
                 self.flows
-                    .build(&self.times_table)
+                    .build(&self.times_table, &self.lookup_tables)
                     .context("Failed to convert flows")?,
                 categories,
                 self.plan

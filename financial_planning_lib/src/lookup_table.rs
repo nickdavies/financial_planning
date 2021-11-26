@@ -4,7 +4,7 @@ use crate::time::{TimeNext, TimeRange};
 
 type Ranges<T, V> = Vec<(TimeRange<T>, V)>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LookupTable<T: TimeNext, V> {
     ranges: Ranges<T, V>,
 }
@@ -54,8 +54,6 @@ impl<T: TimeNext + std::cmp::Ord + std::fmt::Debug, V: Clone + std::fmt::Debug> 
             return Err(anyhow!("Got empty ranges, which isn't allowed"));
         }
         ranges.sort_unstable_by_key(|(r, _)| r.start.clone());
-
-        println!("HERE: {:?}", ranges);
 
         let mut prev: Option<&T> = None;
         for (i, (range, _)) in itertools::enumerate(ranges.iter()) {
