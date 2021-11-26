@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
@@ -46,7 +47,10 @@ impl TryFrom<YearRange> for TimeRange<Year> {
 #[serde(tag = "policy")]
 pub enum AnnualTaxPolicyRaw {
     #[serde(rename = "fixed_rate")]
-    FixedRate { rate: i64, standard_deduction: i64 },
+    FixedRate {
+        rate: String,
+        standard_deduction: i64,
+    },
 }
 
 impl TryFrom<AnnualTaxPolicyRaw> for Box<dyn AnnualTaxPolicy> {
@@ -58,7 +62,7 @@ impl TryFrom<AnnualTaxPolicyRaw> for Box<dyn AnnualTaxPolicy> {
                 rate,
                 standard_deduction,
             } => FixedRateTaxPolicy::new(
-                Rate::from_percent(rate),
+                rate.parse().context("Failed to parse rate")?,
                 Money::from_dollars(standard_deduction),
             ),
         }))
@@ -166,7 +170,7 @@ pub enum FlowValueRaw {
     #[serde(rename = "fixed")]
     FixedFlow { value: i64 },
     #[serde(rename = "rate")]
-    RateFlow { rate: i64 },
+    RateFlow { rate: String },
     #[serde(rename = "table")]
     TableFlow { table_name: String },
     #[serde(rename = "rate_table")]
@@ -180,7 +184,7 @@ impl FlowValueRaw {
                 value: Money::from_dollars(value),
             }),
             Self::RateFlow { rate } => Box::new(RateFlow {
-                rate: Rate::from_percent(rate),
+                rate: rate.parse().context("Failed to parse provided rate")?,
             }),
             Self::TableFlow { table_name } => Box::new(TableFlow {
                 table: match tables.get(&table_name) {
@@ -217,7 +221,7 @@ pub enum FlowTaxPolicy {
     #[serde(rename = "tax_exempt")]
     TaxExempt,
     #[serde(rename = "fixed_rate")]
-    FixedRate { rate: i64 },
+    FixedRate { rate: String },
 }
 
 impl TryFrom<FlowTaxPolicy> for Box<dyn TaxPolicy> {
@@ -228,7 +232,7 @@ impl TryFrom<FlowTaxPolicy> for Box<dyn TaxPolicy> {
             FlowTaxPolicy::NoWithholding => Box::new(NoWithholding {}),
             FlowTaxPolicy::TaxExempt => Box::new(TaxExempt {}),
             FlowTaxPolicy::FixedRate { rate } => Box::new(ConstantTaxPolicy {
-                rate: Rate::from_percent(rate),
+                rate: rate.parse().context("failed to parse provided rate")?,
             }),
         })
     }
@@ -304,8 +308,13 @@ impl Flows {
 #[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum TableRaw {
-    Rate {
-        rate: i64,
+    MonthlyRate {
+        monthly_rate: String,
+        start: TimeRaw,
+        end: TimeRaw,
+    },
+    YearlyRate {
+        yearly_rate: String,
         start: TimeRaw,
         end: TimeRaw,
     },
@@ -322,18 +331,39 @@ trait Build<T> {
 
 impl Build<(TimeRange<Time>, Rate)> for TableRaw {
     fn build(self, times_table: &TimesTable) -> Result<(TimeRange<Time>, Rate)> {
-        match self {
-            Self::Rate { rate, start, end } => Ok((
-                TimeRange {
-                    start: start
-                        .build(times_table)
-                        .context("failed to build start time")?,
-                    end: end.build(times_table).context("failed to build end time")?,
-                },
-                Rate::from_percent(rate),
-            )),
-            Self::Money { .. } => Err(anyhow!("Asked to build a rate table but found money entry")),
-        }
+        let (rate, start, end) = match self {
+            Self::MonthlyRate {
+                monthly_rate,
+                start,
+                end,
+            } => (
+                Rate::from_str(&monthly_rate).context("Failed to parse provided rate")?,
+                start,
+                end,
+            ),
+            Self::YearlyRate {
+                yearly_rate,
+                start,
+                end,
+            } => (
+                Rate::from_str(&yearly_rate).context("Failed to parse provided rate")? / 12,
+                start,
+                end,
+            ),
+            Self::Money { .. } => {
+                return Err(anyhow!("Asked to build a rate table but found money entry"));
+            }
+        };
+
+        Ok((
+            TimeRange {
+                start: start
+                    .build(times_table)
+                    .context("failed to build start time")?,
+                end: end.build(times_table).context("failed to build end time")?,
+            },
+            rate,
+        ))
     }
 }
 
@@ -353,7 +383,9 @@ impl Build<(TimeRange<Time>, Money)> for TableRaw {
                 },
                 Money::from_dollars(dollars),
             )),
-            Self::Rate { .. } => Err(anyhow!("Asked to build a money table but found rate entry")),
+            Self::MonthlyRate { .. } | Self::YearlyRate { .. } => {
+                Err(anyhow!("Asked to build a money table but found rate entry"))
+            }
         }
     }
 }
@@ -401,7 +433,7 @@ impl LookupTables {
                 .next()
                 .context(format!("Table {} was somehow empty", name))?;
             let table = match first {
-                TableRaw::Rate { .. } => TableType::Rate(
+                TableRaw::MonthlyRate { .. } | TableRaw::YearlyRate { .. } => TableType::Rate(
                     Self::build_table(&name, table_entries, times_table).context(
                         "failed to rate table (decided it was rate based on first entry)",
                     )?,

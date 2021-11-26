@@ -1,6 +1,7 @@
 use crate::tax::TaxTx;
 use crate::time::Time;
 
+use anyhow::anyhow;
 use thousands::Separable;
 
 /// An amount of money in cents
@@ -93,6 +94,29 @@ impl Rate {
     }
 }
 
+impl std::str::FromStr for Rate {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let clean = s.trim().trim_end_matches('%').trim();
+
+        Ok(match clean.split_once('.') {
+            Some((whole, points)) => {
+                let _: f64 = clean.parse()?;
+                let points: i64 = points.parse()?;
+                if points >= 100 {
+                    return Err(anyhow!(
+                        "Found more than 2 decimal places for {} which isn't allowed",
+                        s
+                    ));
+                }
+                let whole: i64 = whole.parse()?;
+                Rate(whole * 100 + points)
+            }
+            None => Rate::from_percent(clean.parse()?),
+        })
+    }
+}
+
 impl core::ops::Div<i64> for Rate {
     type Output = Rate;
     fn div(self, rhs: i64) -> Self::Output {
@@ -170,7 +194,7 @@ impl<'a> CategoryValue<'a> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use anyhow::Result;
+    use anyhow::{Context, Result};
 
     use crate::time::{Month, Year};
 
@@ -223,6 +247,40 @@ mod test {
 
         let r = Rate(1234);
         assert_eq!("12.34%".to_string(), format!("{}", r));
+        Ok(())
+    }
+
+    #[test]
+    fn test_rate_loading() -> Result<()> {
+        let values = vec![
+            ("1", 100),
+            ("1.1", 101),
+            ("100.51", 10051),
+            ("10%", 1000),
+            (" 10%", 1000),
+            ("10% ", 1000),
+            (" 10% ", 1000),
+            (" 10 % ", 1000),
+            (" -10 % ", -1000),
+        ];
+
+        for (input, output) in values.into_iter() {
+            let r: Rate = input
+                .parse()
+                .context(format!("Failed to parse {}", input))?;
+            assert_eq!((input, r.0), (input, output));
+        }
+
+        let bad_values = vec![
+            "a", "a.b", "0.a", "0a", "0.0a", "0a.0", "0%.0", "- 0", // must be touching number
+            "0.-1", "1.100", // don't support more than 2 decimal places for now.
+            "1.123", // don't support more than 2 decimal places for now.
+        ];
+        for input in bad_values.into_iter() {
+            let r: Result<Rate> = input.parse();
+            assert_eq!((input, r.is_err()), (input, true));
+        }
+
         Ok(())
     }
 
