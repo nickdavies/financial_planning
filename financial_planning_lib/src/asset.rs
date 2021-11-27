@@ -82,17 +82,23 @@ impl core::iter::Sum<Money> for Money {
     }
 }
 
-/// A percentage with up to 2 decimals
+// The internal conversion ratio of rate. Used to scale the number of decimal places supported.
+// The tradeoff between more precision is that you will have more overflows when performing rate
+// calculations.
+const RATE_PRECISION: u32 = 6;
+const RATE_SCALE: i64 = (10 as i64).pow(RATE_PRECISION);
+
+/// A percentage with a fixed amount of decimal places
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Rate(i64);
 
 impl Rate {
     pub fn from_percent(pct: i64) -> Self {
-        Self(pct * 100)
+        Self(pct * RATE_SCALE)
     }
 
     pub fn as_percent(&self) -> i64 {
-        self.0 / 100
+        self.0 / RATE_SCALE
     }
 
     pub fn inverse(&self) -> Self {
@@ -100,7 +106,7 @@ impl Rate {
     }
 
     pub fn at_rate(&self, money: Money) -> Money {
-        Money(money.0 * self.0 / 100 / 100)
+        Money(money.0 * self.0 / RATE_SCALE / 100)
     }
 }
 
@@ -124,17 +130,26 @@ impl std::str::FromStr for Rate {
         let clean = s.trim().trim_end_matches('%').trim();
 
         Ok(match clean.split_once('.') {
-            Some((whole, points)) => {
+            Some((whole_str, points_str)) => {
                 let _: f64 = clean.parse()?;
-                let points: i64 = points.parse()?;
-                if points >= 100 {
+                let points: i64 = points_str.parse()?;
+                if points >= RATE_SCALE {
                     return Err(anyhow!(
-                        "Found more than 2 decimal places for {} which isn't allowed",
+                        "Found more than {} decimal places for {} which isn't allowed",
+                        RATE_PRECISION,
                         s
                     ));
                 }
-                let whole: i64 = whole.parse()?;
-                Rate(whole * 100 + points)
+                if points < 0 {
+                    return Err(anyhow!(
+                        "Found negative number on right side of . somehow for {}",
+                        s
+                    ));
+                }
+
+                let digits = points_str.len() as u32;
+                let whole: i64 = whole_str.parse()?;
+                Rate(whole * RATE_SCALE + points * (10 as i64).pow(RATE_PRECISION - digits))
             }
             None => Rate::from_percent(clean.parse()?),
         })
@@ -143,11 +158,11 @@ impl std::str::FromStr for Rate {
 
 impl std::fmt::Display for Rate {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let remainder = self.0 % 100;
+        let remainder = self.0 % RATE_SCALE;
         write!(
             f,
             "{}{}%",
-            self.0 / 100,
+            self.0 / RATE_SCALE,
             if remainder != 0 {
                 format!(".{:02}", remainder)
             } else {
@@ -254,34 +269,35 @@ mod test {
     #[test]
     fn test_rate_basics() -> Result<()> {
         let r = Rate::from_percent(10);
-        assert_eq!(r.0, 1000);
         assert_eq!(r.as_percent(), 10);
         assert_eq!("10%".to_string(), format!("{}", r));
 
         let inv = r.inverse();
-        assert_eq!(inv.0, 9000);
         assert_eq!(inv.as_percent(), 90);
         assert_eq!("90%".to_string(), format!("{}", inv));
         assert_eq!(r, r.inverse().inverse());
 
-        let r = Rate(1234);
+        let r = Rate(12345678);
         assert_eq!(r.as_percent(), 12);
-        assert_eq!("12.34%".to_string(), format!("{}", r));
+        assert_eq!("12.345678%".to_string(), format!("{}", r));
         Ok(())
     }
 
     #[test]
     fn test_rate_loading() -> Result<()> {
         let values = vec![
-            ("1", 100),
-            ("1.1", 101),
-            ("100.51", 10051),
-            ("10%", 1000),
-            (" 10%", 1000),
-            ("10% ", 1000),
-            (" 10% ", 1000),
-            (" 10 % ", 1000),
-            (" -10 % ", -1000),
+            ("1", 1000000),
+            ("1.1", 1100000),
+            ("1.01", 1010000),
+            ("1.001", 1001000),
+            ("1.0001", 1000100),
+            ("100.51", 100510000),
+            ("10%", 10000000),
+            (" 10%", 10000000),
+            ("10% ", 10000000),
+            (" 10% ", 10000000),
+            (" 10 % ", 10000000),
+            (" -10 % ", -10000000),
         ];
 
         for (input, output) in values.into_iter() {
@@ -292,9 +308,17 @@ mod test {
         }
 
         let bad_values = vec![
-            "a", "a.b", "0.a", "0a", "0.0a", "0a.0", "0%.0", "- 0", // must be touching number
-            "0.-1", "1.100", // don't support more than 2 decimal places for now.
-            "1.123", // don't support more than 2 decimal places for now.
+            "a",
+            "a.b",
+            "0.a",
+            "0a",
+            "0.0a",
+            "0a.0",
+            "0%.0",
+            "- 0", // must be touching number
+            "0.-1",
+            "1.1000000", // don't support more than 6 decimal places for now.
+            "1.1234567", // don't support more than 6 decimal places for now.
         ];
         for input in bad_values.into_iter() {
             let r: Result<Rate> = input.parse();
@@ -362,7 +386,10 @@ mod test {
         // Test 1c as a % of $1 to test extreme end of precision
         assert_eq!(Money(1) / Money::from_dollars(1), Rate::from_percent(1),);
         // Check precision below a single % point also works
-        assert_eq!(Money::from_dollars(1) / Money::from_dollars(3), Rate(3333),);
+        assert_eq!(
+            Money::from_dollars(1) / Money::from_dollars(3),
+            Rate(33333333)
+        );
 
         Ok(())
     }

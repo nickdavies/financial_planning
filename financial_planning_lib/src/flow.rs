@@ -377,7 +377,7 @@ mod test {
             TestType::ByValue(vec![
                 (Money::from_dollars(0), Money::from_dollars(0)),
                 (Money::from_dollars(10), Money::from_cents(6)),
-                (Money::from_dollars(200), Money::from_cents(132)),
+                (Money::from_dollars(200), Money::from_cents(133)),
             ]),
         )?;
 
