@@ -133,6 +133,21 @@ impl TaxPolicy for NoWithholding {
 }
 
 #[derive(Debug)]
+pub struct PartiallyTaxed {
+    pub taxed_proportion: Rate,
+    pub withholding_rate: Rate,
+}
+impl TaxPolicy for PartiallyTaxed {
+    fn tax_withheld(&self, gross: Money) -> TaxTx {
+        let taxable_income = gross.at_rate(self.taxed_proportion);
+        TaxTx {
+            taxable_income,
+            tax_withheld: taxable_income.at_rate(self.withholding_rate),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct TaxExempt {}
 impl TaxPolicy for TaxExempt {
     fn tax_withheld(&self, _: Money) -> TaxTx {
@@ -364,6 +379,20 @@ mod test {
             Money::from_dollars(1000), // taxable
             Money::from_dollars(250),  // withheld
             Money::from_dollars(750),  // net
+        )
+    }
+
+    #[test]
+    fn test_partially_taxed() -> Result<()> {
+        test_tax_policy(
+            PartiallyTaxed {
+                taxed_proportion: Rate::from_percent(25),
+                withholding_rate: Rate::from_percent(10),
+            },
+            Money::from_dollars(1000), // gross
+            Money::from_dollars(250),  // taxable
+            Money::from_dollars(25),   // withheld
+            Money::from_dollars(975),  // net
         )
     }
 }

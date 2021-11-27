@@ -12,7 +12,8 @@ use financial_planning_lib::flow::{
 use financial_planning_lib::lookup_table::LookupTable;
 use financial_planning_lib::model::Model;
 use financial_planning_lib::tax::{
-    AnnualTaxPolicy, ConstantTaxPolicy, FixedRateTaxPolicy, NoWithholding, TaxExempt, TaxPolicy,
+    AnnualTaxPolicy, ConstantTaxPolicy, FixedRateTaxPolicy, NoWithholding, PartiallyTaxed,
+    TaxExempt, TaxPolicy,
 };
 use financial_planning_lib::time::{Time, TimeRange, Year};
 
@@ -222,6 +223,11 @@ pub enum FlowTaxPolicy {
     TaxExempt,
     #[serde(rename = "fixed_rate")]
     FixedRate { rate: String },
+    #[serde(rename = "partially_taxed")]
+    PartiallyTaxed {
+        taxed_proportion: String,
+        withholding_rate: String,
+    },
 }
 
 impl TryFrom<FlowTaxPolicy> for Box<dyn TaxPolicy> {
@@ -233,6 +239,17 @@ impl TryFrom<FlowTaxPolicy> for Box<dyn TaxPolicy> {
             FlowTaxPolicy::TaxExempt => Box::new(TaxExempt {}),
             FlowTaxPolicy::FixedRate { rate } => Box::new(ConstantTaxPolicy {
                 rate: rate.parse().context("failed to parse provided rate")?,
+            }),
+            FlowTaxPolicy::PartiallyTaxed {
+                taxed_proportion,
+                withholding_rate,
+            } => Box::new(PartiallyTaxed {
+                taxed_proportion: taxed_proportion
+                    .parse()
+                    .context("failed to parse provided taxed_proportion")?,
+                withholding_rate: withholding_rate
+                    .parse()
+                    .context("failed to parse provided withholding_rate")?,
             }),
         })
     }

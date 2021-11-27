@@ -63,6 +63,12 @@ value = 5_000
 #                 is taxable income. This is useful for things like stock
 #                 and bonuses which are taxed at some fixed rate.
 #
+#   - partially_taxed: A partially taxed asset which lets you withhold some
+#                provided percentage of only a part of the income from the flow
+#                with the rest being untaxed. An example is a managed fund which
+#                you are taxed on the gains from rebalancing and also any dividends
+#                but not on unrealized cap gains.
+#
 #   - no_withholding: No tax is withheld but it's still all taxable income.
 #                     This is useful for things like investments which might
 #                     not hold tax for you
