@@ -112,7 +112,9 @@ impl Model {
             }
         }
 
-        let (adjustment, tax_flow) = tax_policy.calculate_adjustment(year, &tax_summary);
+        let (adjustment, tax_flow) = tax_policy
+            .calculate_adjustment(year, &tax_summary)
+            .context(format!("Failed to calculate tax adjustment for {}", year.0))?;
         flows
             .entry(tax_category.clone())
             .or_insert_with(Vec::new)
@@ -268,6 +270,7 @@ mod test {
                 .map(|v| {
                     Money::from_dollars(v)
                         .at_rate(Rate::from_percent(90))
+                        .expect("Rate rate shouldn't have failed")
                         .as_cents()
                 })
                 .collect();
@@ -445,9 +448,9 @@ mod test {
             Year(2021) => (
                 Some(Money::from_dollars(0)),
                 TaxSummary {
-                    net_amount: (c1_yearly(0) + c2_yearly(true)).at_rate(net_rate),
+                    net_amount: (c1_yearly(0) + c2_yearly(true)).at_rate(net_rate).unwrap(),
                     taxable_income: c1_yearly(0) + c2_yearly(true),
-                    tax_withheld: (c1_yearly(0) + c2_yearly(true)).at_rate(withheld_rate),
+                    tax_withheld: (c1_yearly(0) + c2_yearly(true)).at_rate(withheld_rate).unwrap(),
                 },
                 // Tax from 2021 should be c1_yearly ($5,452) + c2_yearly ($10,755) = $16,207 gross income.
                 // We have $3,000 in deductions so taxable income is $13,207. Taxed at 35% we owe $4,622.45
@@ -484,9 +487,9 @@ mod test {
             Year(2022) => (
                 Some(tax_2021),
                 TaxSummary {
-                    net_amount: (c1_yearly(0) + c2_yearly(false)).at_rate(net_rate) + tax_2021,
+                    net_amount: (c1_yearly(0) + c2_yearly(false)).at_rate(net_rate).unwrap() + tax_2021,
                     taxable_income: c1_yearly(0) + c2_yearly(false),
-                    tax_withheld: (c1_yearly(0) + c2_yearly(false)).at_rate(withheld_rate),
+                    tax_withheld: (c1_yearly(0) + c2_yearly(false)).at_rate(withheld_rate).unwrap(),
                 },
                 // Tax from 2022 should be c1_yearly ($5,452) + c2_yearly ($11,580) = $17,032 gross income.
                 // We have $3,000 in deductions so taxable income is $14,032. Taxed at 35% we owe $4,911.20
@@ -499,9 +502,9 @@ mod test {
                     effective_rate: Rate::from_percent(35),
                 },
                 btreemap!{
-                    c1.name.clone() => (Money::from_dollars(123) + c1_yearly(0).at_rate(net_rate), c1_year()),
+                    c1.name.clone() => (Money::from_dollars(123) + c1_yearly(0).at_rate(net_rate).unwrap(), c1_year()),
                     c2.name.clone() => (
-                        Money::from_dollars(456) + c2_yearly(true).at_rate(net_rate),
+                        Money::from_dollars(456) + c2_yearly(true).at_rate(net_rate).unwrap(),
                         vec![
                             (vec![5, 60], vec!["4", "5"]),            // Jan
                             (vec![5, 60, 700], vec!["4", "5", "6"]),  // Feb
@@ -522,9 +525,9 @@ mod test {
             Year(2023) => (
                 Some(tax_2022),
                 TaxSummary {
-                    net_amount: Money::from_dollars(5 + 60 + 60 + 700).at_rate(net_rate) + tax_2022,
+                    net_amount: Money::from_dollars(5 + 60 + 60 + 700).at_rate(net_rate).unwrap() + tax_2022,
                     taxable_income: Money::from_dollars(5 + 60 + 60 + 700),
-                    tax_withheld: Money::from_dollars(5 + 60 + 60 + 700).at_rate(withheld_rate),
+                    tax_withheld: Money::from_dollars(5 + 60 + 60 + 700).at_rate(withheld_rate).unwrap(),
                 },
                 // Tax from 2023 should be c1_yearly ($0) + c2_yearly ($825) = $825 gross income.
                 // We have $3,000 in deductions so taxable income is $0. Taxed at 35% we owe $0 in tax.
@@ -537,9 +540,9 @@ mod test {
                     effective_rate: Rate::from_percent(0),
                 },
                 btreemap!{
-                    c1.name.clone() => (Money::from_dollars(123) + c1_yearly(0).at_rate(net_rate) + c1_yearly(0).at_rate(net_rate) + tax_2021, empty_year.clone()),
+                    c1.name.clone() => (Money::from_dollars(123) + c1_yearly(0).at_rate(net_rate).unwrap() + c1_yearly(0).at_rate(net_rate).unwrap() + tax_2021, empty_year.clone()),
                     c2.name.clone() => (
-                        Money::from_dollars(456) + c2_yearly(true).at_rate(net_rate) + c2_yearly(false).at_rate(net_rate),
+                        Money::from_dollars(456) + c2_yearly(true).at_rate(net_rate).unwrap() + c2_yearly(false).at_rate(net_rate).unwrap(),
                         vec![
                             (vec![5, 60], vec!["4", "5"]),   // Jan
                             (vec![60, 700], vec!["5", "6"]), // Feb
@@ -579,7 +582,7 @@ mod test {
                             .iter()
                             .map(|(v, _)| {
                                 v.iter()
-                                    .map(|d| Money::from_dollars(*d).at_rate(net_rate))
+                                    .map(|d| Money::from_dollars(*d).at_rate(net_rate).unwrap())
                                     .sum()
                             })
                             .sum(),
@@ -642,14 +645,14 @@ mod test {
             out.end_values,
             btreemap! {
                 c1.name => Money::from_dollars(123)
-                    + c1_yearly(0).at_rate(net_rate)
-                    + c1_yearly(0).at_rate(net_rate)
+                    + c1_yearly(0).at_rate(net_rate).unwrap()
+                    + c1_yearly(0).at_rate(net_rate).unwrap()
                     + tax_2021
                     + tax_2022,
                 c2.name => Money::from_dollars(456)
-                    + c2_yearly(true).at_rate(net_rate)
-                    + c2_yearly(false).at_rate(net_rate)
-                    + Money::from_dollars(5 + 60 + 60 + 700).at_rate(net_rate),
+                    + c2_yearly(true).at_rate(net_rate).unwrap()
+                    + c2_yearly(false).at_rate(net_rate).unwrap()
+                    + Money::from_dollars(5 + 60 + 60 + 700).at_rate(net_rate).unwrap(),
             }
         );
 

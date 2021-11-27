@@ -1,3 +1,5 @@
+use anyhow::{Context, Result};
+
 use crate::asset::{Money, Rate};
 use crate::flow::{FixedFlow, Flow, FlowName};
 use crate::time::{Frequency, Month, Time, TimeNext, Year};
@@ -10,12 +12,14 @@ pub trait AnnualTaxPolicy: std::fmt::Debug {
 
         // A summary of the tax withheld, income earned etc
         summary: &TaxSummary,
-    ) -> (TaxAdjustment, Flow) {
+    ) -> Result<(TaxAdjustment, Flow)> {
         let taxable_income = self.calculate_taxable_income(summary);
-        let tax_owed = self.calculate_owed(taxable_income, summary);
+        let tax_owed = self
+            .calculate_owed(taxable_income, summary)
+            .context("calculating woed tax")?;
         let delta = summary.tax_withheld - tax_owed;
 
-        (
+        Ok((
             TaxAdjustment {
                 owed: tax_owed,
                 withheld: summary.tax_withheld,
@@ -41,10 +45,10 @@ pub trait AnnualTaxPolicy: std::fmt::Debug {
                 value: Box::new(FixedFlow { value: delta }),
                 tax_policy: Box::new(TaxExempt {}),
             },
-        )
+        ))
     }
 
-    fn calculate_owed(&self, taxable_income: Money, summary: &TaxSummary) -> Money;
+    fn calculate_owed(&self, taxable_income: Money, summary: &TaxSummary) -> Result<Money>;
 
     fn calculate_taxable_income(&self, summary: &TaxSummary) -> Money;
 }
@@ -62,7 +66,7 @@ impl FixedRateTaxPolicy {
 }
 
 impl AnnualTaxPolicy for FixedRateTaxPolicy {
-    fn calculate_owed(&self, taxable_income: Money, _: &TaxSummary) -> Money {
+    fn calculate_owed(&self, taxable_income: Money, _: &TaxSummary) -> Result<Money> {
         taxable_income.at_rate(self.rate)
     }
 
@@ -112,23 +116,25 @@ pub struct TaxTx {
 }
 
 pub trait TaxPolicy: std::fmt::Debug {
-    fn calculate_tax(&self, gross: Money) -> (Money, TaxTx) {
-        let tx = self.tax_withheld(gross);
+    fn calculate_tax(&self, gross: Money) -> Result<(Money, TaxTx)> {
+        let tx = self
+            .tax_withheld(gross)
+            .context("Failed to calculate withheld tax")?;
 
-        (gross - tx.tax_withheld, tx)
+        Ok((gross - tx.tax_withheld, tx))
     }
 
-    fn tax_withheld(&self, gross: Money) -> TaxTx;
+    fn tax_withheld(&self, gross: Money) -> Result<TaxTx>;
 }
 
 #[derive(Debug)]
 pub struct NoWithholding {}
 impl TaxPolicy for NoWithholding {
-    fn tax_withheld(&self, gross: Money) -> TaxTx {
-        TaxTx {
+    fn tax_withheld(&self, gross: Money) -> Result<TaxTx> {
+        Ok(TaxTx {
             taxable_income: gross,
             tax_withheld: Money::from_dollars(0),
-        }
+        })
     }
 }
 
@@ -138,23 +144,27 @@ pub struct PartiallyTaxed {
     pub withholding_rate: Rate,
 }
 impl TaxPolicy for PartiallyTaxed {
-    fn tax_withheld(&self, gross: Money) -> TaxTx {
-        let taxable_income = gross.at_rate(self.taxed_proportion);
-        TaxTx {
+    fn tax_withheld(&self, gross: Money) -> Result<TaxTx> {
+        let taxable_income = gross
+            .at_rate(self.taxed_proportion)
+            .context("Failed to calculate taxable income")?;
+        Ok(TaxTx {
             taxable_income,
-            tax_withheld: taxable_income.at_rate(self.withholding_rate),
-        }
+            tax_withheld: taxable_income
+                .at_rate(self.withholding_rate)
+                .context("Failed to calculate tax withheld")?,
+        })
     }
 }
 
 #[derive(Debug)]
 pub struct TaxExempt {}
 impl TaxPolicy for TaxExempt {
-    fn tax_withheld(&self, _: Money) -> TaxTx {
-        TaxTx {
+    fn tax_withheld(&self, _: Money) -> Result<TaxTx> {
+        Ok(TaxTx {
             taxable_income: Money::from_dollars(0),
             tax_withheld: Money::from_dollars(0),
-        }
+        })
     }
 }
 
@@ -164,11 +174,13 @@ pub struct ConstantTaxPolicy {
 }
 
 impl TaxPolicy for ConstantTaxPolicy {
-    fn tax_withheld(&self, gross: Money) -> TaxTx {
-        TaxTx {
+    fn tax_withheld(&self, gross: Money) -> Result<TaxTx> {
+        Ok(TaxTx {
             taxable_income: gross,
-            tax_withheld: gross.at_rate(self.rate),
-        }
+            tax_withheld: gross
+                .at_rate(self.rate)
+                .context("Failed to calculate tax withheld")?,
+        })
     }
 }
 
@@ -203,11 +215,17 @@ mod test {
         assert_eq!(flow.frequency, Frequency::Monthly);
 
         // We make sure that any flow made by tax is not taxed
-        let tx = flow.tax_policy.tax_withheld(delta);
+        let tx = flow
+            .tax_policy
+            .tax_withheld(delta)
+            .context("failed to calculate witholding")?;
         assert_eq!(tx.taxable_income, Money::from_dollars(0));
         assert_eq!(tx.tax_withheld, Money::from_dollars(0));
 
-        let (net, tx) = flow.tax_policy.calculate_tax(delta);
+        let (net, tx) = flow
+            .tax_policy
+            .calculate_tax(delta)
+            .context("failed to calculate tax")?;
         assert_eq!(net, delta);
         assert_eq!(tx.taxable_income, Money::from_dollars(0));
         assert_eq!(tx.tax_withheld, Money::from_dollars(0));
@@ -233,8 +251,8 @@ mod test {
         #[derive(Debug)]
         struct Test {}
         impl AnnualTaxPolicy for Test {
-            fn calculate_owed(&self, _: Money, _: &TaxSummary) -> Money {
-                Money::from_dollars(500)
+            fn calculate_owed(&self, _: Money, _: &TaxSummary) -> Result<Money> {
+                Ok(Money::from_dollars(500))
             }
 
             fn calculate_taxable_income(&self, _: &TaxSummary) -> Money {
@@ -242,14 +260,16 @@ mod test {
             }
         }
 
-        let (adjustment, flow) = Test {}.calculate_adjustment(
-            Year(2021),
-            &TaxSummary {
-                net_amount: Money::from_dollars(2000),
-                taxable_income: Money::from_dollars(3000),
-                tax_withheld: Money::from_dollars(600),
-            },
-        );
+        let (adjustment, flow) = Test {}
+            .calculate_adjustment(
+                Year(2021),
+                &TaxSummary {
+                    net_amount: Money::from_dollars(2000),
+                    taxable_income: Money::from_dollars(3000),
+                    tax_withheld: Money::from_dollars(600),
+                },
+            )
+            .unwrap();
 
         verify_tax_adjustment(
             &adjustment,
@@ -271,14 +291,16 @@ mod test {
     fn test_fixed_annual() -> Result<()> {
         let p = FixedRateTaxPolicy::new(Rate::from_percent(20), Money::from_dollars(1000));
 
-        let (adjustment, flow) = p.calculate_adjustment(
-            Year(2021),
-            &TaxSummary {
-                net_amount: Money::from_dollars(5000),
-                taxable_income: Money::from_dollars(10000),
-                tax_withheld: Money::from_dollars(3000),
-            },
-        );
+        let (adjustment, flow) = p
+            .calculate_adjustment(
+                Year(2021),
+                &TaxSummary {
+                    net_amount: Money::from_dollars(5000),
+                    taxable_income: Money::from_dollars(10000),
+                    tax_withheld: Money::from_dollars(3000),
+                },
+            )
+            .unwrap();
 
         verify_tax_adjustment(
             &adjustment,
@@ -330,16 +352,16 @@ mod test {
         withheld: Money,
         net: Money,
     ) -> Result<()> {
-        let tx = policy.tax_withheld(gross);
+        let tx = policy.tax_withheld(gross).unwrap();
         assert_eq!(tx.taxable_income, taxable);
         assert_eq!(tx.tax_withheld, withheld);
 
-        let (net_out, tx) = policy.calculate_tax(gross);
+        let (net_out, tx) = policy.calculate_tax(gross).unwrap();
         assert_eq!(tx.taxable_income, taxable);
         assert_eq!(tx.tax_withheld, withheld);
         assert_eq!(net_out, net);
 
-        let (net_out, tx) = policy.calculate_tax(Money::from_dollars(0));
+        let (net_out, tx) = policy.calculate_tax(Money::from_dollars(0)).unwrap();
         assert_eq!(tx.taxable_income, Money::from_dollars(0));
         assert_eq!(tx.tax_withheld, Money::from_dollars(0));
         assert_eq!(net_out, Money::from_dollars(0));

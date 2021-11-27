@@ -25,7 +25,10 @@ impl Flow {
             .value
             .value_at(&time, self, category)
             .context("Failed to get value for flow")?;
-        let (net, tax_tx) = self.tax_policy.calculate_tax(gross);
+        let (net, tax_tx) = self
+            .tax_policy
+            .calculate_tax(gross)
+            .context(format!("Failed to calculate tax for {}", category.name().0))?;
 
         Ok(Tx {
             time: time.clone(),
@@ -65,7 +68,7 @@ pub struct RateFlow {
 
 impl FlowValue for RateFlow {
     fn value_at(&self, _: &Time, _: &Flow, category: &CategoryValue) -> Result<Money> {
-        Ok(category.value().at_rate(self.rate))
+        category.value().at_rate(self.rate)
     }
 }
 
@@ -89,11 +92,11 @@ pub struct RateTableFlow {
 
 impl FlowValue for RateTableFlow {
     fn value_at(&self, time: &Time, _: &Flow, category: &CategoryValue) -> Result<Money> {
-        Ok(category.value().at_rate(
+        category.value().at_rate(
             self.table
                 .value_at(time)
                 .context("failed to get rate from table")?,
-        ))
+        )
     }
 }
 
@@ -109,8 +112,8 @@ mod test {
     #[derive(Debug)]
     struct MockTax {}
     impl TaxPolicy for MockTax {
-        fn calculate_tax(&self, gross: Money) -> (Money, TaxTx) {
-            (
+        fn calculate_tax(&self, gross: Money) -> Result<(Money, TaxTx)> {
+            Ok((
                 // We subtract one to assert that this gets called and it's outcome is
                 // applied correctly
                 gross - Money::from_dollars(1),
@@ -120,10 +123,10 @@ mod test {
                     taxable_income: gross,
                     tax_withheld: gross - Money::from_dollars(10),
                 },
-            )
+            ))
         }
 
-        fn tax_withheld(&self, _: Money) -> TaxTx {
+        fn tax_withheld(&self, _: Money) -> Result<TaxTx> {
             panic!("Not implement for mock");
         }
     }

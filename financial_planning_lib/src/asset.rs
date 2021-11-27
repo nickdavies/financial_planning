@@ -1,7 +1,7 @@
 use crate::tax::TaxTx;
 use crate::time::Time;
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context, Result};
 use thousands::Separable;
 
 /// An amount of money in cents
@@ -25,7 +25,7 @@ impl Money {
         self.0
     }
 
-    pub fn at_rate(&self, rate: Rate) -> Money {
+    pub fn at_rate(&self, rate: Rate) -> Result<Money> {
         rate.at_rate(*self)
     }
 }
@@ -105,8 +105,12 @@ impl Rate {
         Rate::from_percent(100) - *self
     }
 
-    pub fn at_rate(&self, money: Money) -> Money {
-        Money(money.0 * self.0 / RATE_SCALE / 100)
+    pub fn at_rate(&self, money: Money) -> Result<Money> {
+        let tmp: i64 = money
+            .0
+            .checked_mul(self.0)
+            .context("Applying rate would cause overflow")?;
+        Ok(Money(tmp / RATE_SCALE / 100))
     }
 }
 
@@ -346,22 +350,22 @@ mod test {
         // Test without rounding issues
         let m = Money::from_dollars(100);
         let r = Rate::from_percent(20);
-        let m_out = m.at_rate(r);
+        let m_out = m.at_rate(r).unwrap();
         assert_eq!(m_out.as_dollars(), 20);
 
-        let m_out = r.at_rate(m);
+        let m_out = r.at_rate(m).unwrap();
         assert_eq!(m_out.as_dollars(), 20);
 
         // Test to prove we round well
         let m = Money::from_dollars(2);
         let r = Rate::from_percent(20);
-        let m_out = m.at_rate(r);
+        let m_out = m.at_rate(r).unwrap();
         // externally we truncate down to 0
         assert_eq!(m_out.as_dollars(), 0);
         // Internally we should still see 40c
         assert_eq!(m_out.0, 40);
 
-        let m_out = r.at_rate(m);
+        let m_out = r.at_rate(m).unwrap();
         // externally we truncate down to 0
         assert_eq!(m_out.as_dollars(), 0);
         // Internally we should still see 40c
@@ -371,12 +375,12 @@ mod test {
         // truncate where we shouldn't.
         let r = Rate::from_percent(1) / 10;
         let m = Money::from_dollars(2000);
-        assert_eq!(m.at_rate(r), Money::from_dollars(2));
-        assert_eq!(r.at_rate(m), Money::from_dollars(2));
+        assert_eq!(m.at_rate(r).unwrap(), Money::from_dollars(2));
+        assert_eq!(r.at_rate(m).unwrap(), Money::from_dollars(2));
 
         let m = Money::from_dollars(20);
-        assert_eq!(m.at_rate(r), Money::from_cents(2));
-        assert_eq!(r.at_rate(m), Money::from_cents(2));
+        assert_eq!(m.at_rate(r).unwrap(), Money::from_cents(2));
+        assert_eq!(r.at_rate(m).unwrap(), Money::from_cents(2));
 
         // Next we test if we can divide money and get rates
         assert_eq!(
