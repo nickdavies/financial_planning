@@ -6,6 +6,7 @@ use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
 use financial_planning_lib::asset::{Asset, AssetName, Category, CategoryName, Money, Rate};
+use financial_planning_lib::events::{BuildFlows, EventName, HousePurchase};
 use financial_planning_lib::flow::{
     FixedFlow, Flow, FlowName, FlowValue, RateFlow, RateTableFlow, TableFlow,
 };
@@ -77,6 +78,7 @@ pub struct PlanCommon {
     pub tax_category: String,
     pub assets_file: PathBuf,
     pub flows_file: PathBuf,
+    pub events_file: Option<PathBuf>,
     pub times_file: Option<PathBuf>,
     pub tables_file: Option<PathBuf>,
 }
@@ -323,6 +325,84 @@ impl Flows {
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(tag = "type")]
+pub enum EventRaw {
+    #[serde(rename = "house_purchase")]
+    HousePurchase {
+        property_name: String,
+        start: TimeRaw,
+        end: TimeRaw,
+        mortgage_rate: String,
+        purchase_price: i64,
+        setup_cost: i64,
+        down_payment: i64,
+        house_value_category: String,
+        mortgage_category: String,
+        down_payment_category: String,
+        regular_payment_category: String,
+    },
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(transparent)]
+pub struct Events {
+    events: BTreeMap<String, EventRaw>,
+}
+
+impl Events {
+    fn build(
+        self,
+        times_table: &TimesTable,
+        _: &BTreeMap<String, TableType>,
+    ) -> Result<BTreeMap<EventName, Box<dyn BuildFlows>>> {
+        let mut out: BTreeMap<EventName, Box<dyn BuildFlows>> = BTreeMap::new();
+
+        for (event_name, event) in self.events.into_iter() {
+            out.insert(
+                EventName(event_name),
+                match event {
+                    EventRaw::HousePurchase {
+                        property_name,
+                        start,
+                        end,
+                        mortgage_rate,
+                        purchase_price,
+                        setup_cost,
+                        down_payment,
+                        down_payment_category,
+                        house_value_category,
+                        mortgage_category,
+                        regular_payment_category,
+                    } => Box::new(HousePurchase {
+                        property_name,
+                        time_range: TimeRange {
+                            start: start
+                                .build(times_table)
+                                .context("failed to build start time")?,
+                            end: end.build(times_table).context("failed to build end time")?,
+                        },
+                        mortgage_rate: mortgage_rate
+                            .parse()
+                            .context("failed to parse mortgage rate")?,
+                        purchase_price: Money::from_dollars(purchase_price),
+                        setup_cost: Money::from_dollars(setup_cost),
+                        down_payment: Money::from_dollars(down_payment),
+                        house_value_category: CategoryName(house_value_category),
+                        mortgage_category: CategoryName(mortgage_category),
+                        down_payment_category: CategoryName(down_payment_category),
+                        regular_payment_category: CategoryName(regular_payment_category),
+                    }),
+                },
+            );
+        }
+
+        Ok(out)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum TableRaw {
     MonthlyRate {
@@ -473,6 +553,7 @@ pub struct Config {
     plan: Plan,
     assets: Assets,
     flows: Flows,
+    events: Events,
     times_table: TimesTable,
     lookup_tables: BTreeMap<String, TableType>,
 }
@@ -509,15 +590,31 @@ impl Config {
         let categories = Self::build_categories(&self.plan.common.categories, self.assets)
             .context("Failed to build categories")?;
 
+        let mut flows = self
+            .flows
+            .build(&self.times_table, &self.lookup_tables)
+            .context("Failed to convert flows")?;
+
+        let events = self
+            .events
+            .build(&self.times_table, &self.lookup_tables)
+            .context("Failed to build events")?;
+        for (name, event) in events.into_iter() {
+            let event_flows = event
+                .build_flows()
+                .context(format!("Failed to build flows for event {}", name.0))?;
+            for (name, flow) in event_flows {
+                flows.entry(name).or_insert_with(Vec::new).push(flow);
+            }
+        }
+
         Ok((
             self.plan
                 .time_range
                 .try_into()
                 .context("Failed to convert time range")?,
             Model::new(
-                self.flows
-                    .build(&self.times_table, &self.lookup_tables)
-                    .context("Failed to convert flows")?,
+                flows,
                 categories,
                 self.plan
                     .tax
@@ -565,6 +662,10 @@ pub fn read_configs(plan_file: &Path) -> Result<Config> {
     Ok(Config {
         assets: load_subfile("assets", plan_file, &plan.common.assets_file)?,
         flows: load_subfile("flows", plan_file, &plan.common.flows_file)?,
+        events: match &plan.common.events_file {
+            Some(file) => load_subfile("events", plan_file, &file)?,
+            None => Events::default(),
+        },
         times_table,
         lookup_tables,
         plan,

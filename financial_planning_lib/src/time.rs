@@ -112,7 +112,7 @@ impl core::ops::Sub for &Time {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Months(i64);
+pub struct Months(pub i64);
 
 impl Months {
     pub fn even_freq(&self, freq: &Frequency) -> bool {

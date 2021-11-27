@@ -28,6 +28,10 @@ impl Money {
     pub fn at_rate(&self, rate: Rate) -> Result<Money> {
         rate.at_rate(*self)
     }
+
+    pub fn negate(&self) -> Self {
+        Money(self.0 * -1)
+    }
 }
 
 impl std::fmt::Display for Money {
@@ -111,6 +115,14 @@ impl Rate {
             .checked_mul(self.0)
             .context("Applying rate would cause overflow")?;
         Ok(Money(tmp / RATE_SCALE / 100))
+    }
+
+    pub(crate) fn to_float(&self) -> f64 {
+        self.0 as f64 / RATE_SCALE as f64 / 100.0
+    }
+
+    pub(crate) fn from_float(other: f64) -> Self {
+        Rate((other * 100.0 * RATE_SCALE as f64) as i64)
     }
 }
 
@@ -266,6 +278,10 @@ mod test {
 
         let total: Money = vec![m1, m2, m3].into_iter().sum();
         assert_eq!(total, Money::from_dollars(25));
+
+        assert_eq!(m1.negate().as_dollars(), -10);
+        assert_eq!(m1.negate().negate(), m1);
+        assert_eq!(m1.negate().negate().as_cents(), m1.as_cents());
 
         Ok(())
     }
