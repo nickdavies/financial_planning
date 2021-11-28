@@ -8,7 +8,7 @@ use serde::Deserialize;
 use financial_planning_lib::asset::{Asset, AssetName, Category, CategoryName, Money, Rate};
 use financial_planning_lib::events::{BuildFlows, EventName, HousePurchase};
 use financial_planning_lib::flow::{
-    FixedFlow, Flow, FlowName, FlowValue, RateFlow, RateTableFlow, TableFlow,
+    FixedFlow, Flow, FlowName, FlowValue, RateFlow, RateTableFlow, TableFlow, UnitsTableFlow,
 };
 use financial_planning_lib::lookup_table::LookupTable;
 use financial_planning_lib::model::Model;
@@ -178,6 +178,8 @@ pub enum FlowValueRaw {
     TableFlow { table_name: String },
     #[serde(rename = "rate_table")]
     RateTableFlow { table_name: String },
+    #[serde(rename = "units_table")]
+    UnitsTableFlow { table_name: String, units: i64 },
 }
 
 impl FlowValueRaw {
@@ -205,6 +207,21 @@ impl FlowValueRaw {
                     Some(TableType::Rate(t)) => t.clone(),
                     Some(TableType::Money(_)) => {
                         return Err(anyhow!("Found table {} but it's a money table not rate table, did you mean to use table?", table_name));
+                    }
+                    None => {
+                        return Err(anyhow!("Unknown table {}", table_name));
+                    }
+                },
+            }),
+            Self::UnitsTableFlow { table_name, units } => Box::new(UnitsTableFlow {
+                units: units,
+                table: match tables.get(&table_name) {
+                    Some(TableType::Money(t)) => t.clone(),
+                    Some(TableType::Rate(_)) => {
+                        return Err(anyhow!(
+                            "Found table {} but it's a rate table not money table",
+                            table_name
+                        ));
                     }
                     None => {
                         return Err(anyhow!("Unknown table {}", table_name));

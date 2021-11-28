@@ -100,6 +100,22 @@ impl FlowValue for RateTableFlow {
     }
 }
 
+#[derive(Debug)]
+pub struct UnitsTableFlow {
+    pub table: LookupTable<Time, Money>,
+    pub units: i64,
+}
+
+impl FlowValue for UnitsTableFlow {
+    fn value_at(&self, time: &Time, _: &Flow, _: &CategoryValue) -> Result<Money> {
+        let table_value = self
+            .table
+            .value_at(time)
+            .context("failed to get rate from table")?;
+        Ok(Money::from_cents(table_value.as_cents() * self.units))
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -590,6 +606,87 @@ mod test {
                     },
                     Money::from_dollars(150),
                     Money::from_dollars(0),
+                ),
+            ]),
+        )?;
+
+        test_applies_at(&fv)
+    }
+
+    #[test]
+    fn test_unit_table_flow() -> Result<()> {
+        let fv = UnitsTableFlow {
+            units: 123,
+            table: LookupTable::new(vec![
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::July,
+                        },
+                        end: Time {
+                            year: Year(2021),
+                            month: Month::September,
+                        },
+                    },
+                    Money::from_dollars(10),
+                ),
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::September,
+                        },
+                        end: Time {
+                            year: Year(2021),
+                            month: Month::November,
+                        },
+                    },
+                    Money::from_dollars(20),
+                ),
+                (
+                    TimeRange {
+                        start: Time {
+                            year: Year(2021),
+                            month: Month::November,
+                        },
+                        end: Time {
+                            year: Year(2025),
+                            month: Month::January,
+                        },
+                    },
+                    Money::from_dollars(30),
+                ),
+            ])
+            .unwrap(),
+        };
+
+        let test_flow = test_flow();
+        verify_value_at(
+            &fv,
+            &test_flow,
+            TestType::ByTime(vec![
+                (test_flow.start.clone(), Money::from_dollars(1230)),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::August,
+                    },
+                    Money::from_dollars(1230),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::September,
+                    },
+                    Money::from_dollars(2460),
+                ),
+                (
+                    Time {
+                        year: Year(2021),
+                        month: Month::December,
+                    },
+                    Money::from_dollars(3690),
                 ),
             ]),
         )?;
