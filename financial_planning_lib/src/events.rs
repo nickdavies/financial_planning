@@ -194,7 +194,9 @@ impl BuildFlows for HousePurchase {
                 end: self.time_range.end.next(),
                 frequency: Frequency::Monthly,
                 tax_policy: Box::new(TaxExempt {}),
-                value: Box::new(FixedFlow { value: payment }),
+                value: Box::new(FixedFlow {
+                    value: payment.negate(),
+                }),
             },
         ));
 

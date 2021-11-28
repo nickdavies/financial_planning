@@ -109,6 +109,10 @@ impl Rate {
         Rate::from_percent(100) - *self
     }
 
+    pub fn negate(&self) -> Self {
+        Rate(self.0 * -1)
+    }
+
     pub fn at_rate(&self, money: Money) -> Result<Money> {
         let tmp: i64 = money
             .0
@@ -290,7 +294,9 @@ mod test {
     fn test_rate_basics() -> Result<()> {
         let r = Rate::from_percent(10);
         assert_eq!(r.as_percent(), 10);
+        assert_eq!(r.negate().as_percent(), -10);
         assert_eq!("10%".to_string(), format!("{}", r));
+        assert_eq!("-10%".to_string(), format!("{}", r.negate()));
 
         let inv = r.inverse();
         assert_eq!(inv.as_percent(), 90);
@@ -300,6 +306,7 @@ mod test {
         let r = Rate(12345678);
         assert_eq!(r.as_percent(), 12);
         assert_eq!("12.345678%".to_string(), format!("{}", r));
+
         Ok(())
     }
 
