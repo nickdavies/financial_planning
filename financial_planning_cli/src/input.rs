@@ -353,6 +353,7 @@ pub enum EventRaw {
         purchase_price: i64,
         setup_cost: i64,
         down_payment: i64,
+        property_tax_rate: Option<String>,
         house_value_category: String,
         mortgage_category: String,
         down_payment_category: String,
@@ -384,6 +385,7 @@ impl Events {
                         start,
                         end,
                         mortgage_rate,
+                        property_tax_rate,
                         purchase_price,
                         setup_cost,
                         down_payment,
@@ -402,6 +404,12 @@ impl Events {
                         mortgage_rate: mortgage_rate
                             .parse()
                             .context("failed to parse mortgage rate")?,
+                        property_tax_rate: match property_tax_rate {
+                            Some(r) => {
+                                Some(r.parse().context("failed to parse property tax rate")?)
+                            }
+                            None => None,
+                        },
                         purchase_price: Money::from_dollars(purchase_price),
                         setup_cost: Money::from_dollars(setup_cost),
                         down_payment: Money::from_dollars(down_payment),

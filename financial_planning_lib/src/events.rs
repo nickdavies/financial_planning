@@ -34,6 +34,9 @@ pub struct HousePurchase {
     // the mortgage value starts as the purchase_price - down_payment
     pub down_payment: Money,
 
+    // The property tax rate if you want to include this in the model
+    pub property_tax_rate: Option<Rate>,
+
     // The category used to track the equity in the house
     pub house_value_category: CategoryName,
 
@@ -233,6 +236,27 @@ impl BuildFlows for HousePurchase {
                 }),
             },
         ));
+
+        if let Some(property_tax_rate) = self.property_tax_rate {
+            out.push((
+                self.regular_payment_category.clone(),
+                Flow {
+                    name: FlowName(format!("{} property taxes", self.property_name)),
+                    description: format!("The annual property taxes for {}", self.property_name),
+                    start: self.time_range.start.next(),
+                    end: self.time_range.end.next(),
+                    frequency: Frequency::Yearly,
+                    tax_policy: Box::new(TaxExempt {}),
+                    value: Box::new(FixedFlow {
+                        value: self
+                            .purchase_price
+                            .at_rate(property_tax_rate)
+                            .context("Failed to calculate property tax payment")?
+                            .negate(),
+                    }),
+                },
+            ));
+        }
 
         Ok(out)
     }
