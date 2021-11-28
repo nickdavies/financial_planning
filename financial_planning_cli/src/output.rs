@@ -3,8 +3,9 @@ use std::collections::BTreeSet;
 use anyhow::{Context, Result};
 use structopt::StructOpt;
 
+use financial_planning_lib::asset::Money;
 use financial_planning_lib::model::{CategoriesSnapshot, ModelReport, YearlyReport};
-use financial_planning_lib::time::Year;
+use financial_planning_lib::time::{TimeRange, Year};
 
 #[derive(Debug, StructOpt)]
 pub enum OutputType {
@@ -28,12 +29,16 @@ pub enum OutputType {
 }
 
 impl OutputType {
-    pub fn output(&self, report: ModelReport) -> Result<()> {
+    pub fn output(&self, report: ModelReport, time_range: &TimeRange<Year>) -> Result<()> {
         match self {
             Self::Debug => {
                 println!("{:#?}", report);
             }
             Self::EndOnly => {
+                println!(
+                    "Ran model for: {} -> {}",
+                    time_range.start.0, time_range.end.0
+                );
                 Self::print_category_changes(&report.start_values, &report.end_values)
                     .context("failed to merge categories, this is a bug!")?;
             }
@@ -53,11 +58,12 @@ impl OutputType {
                         for (category, monthly_reports) in yearly_report.category_summary.iter() {
                             if let Some(monthly_report) = monthly_reports.get(&month.month) {
                                 println!(
-                                    "  {:?} {} = {} => {}",
+                                    "  {:?} {} = {} => {} ({})",
                                     month.month,
                                     category.0,
                                     monthly_report.start_value,
-                                    monthly_report.end_value
+                                    monthly_report.end_value,
+                                    monthly_report.end_value - monthly_report.start_value,
                                 );
                                 if *include_flows {
                                     for (flow, tx) in &monthly_report.transactions {
@@ -67,8 +73,9 @@ impl OutputType {
                                             tx.amount,
                                             if *include_tax {
                                                 format!(
-                                                    " ({} tax withheld)",
-                                                    tx.tax_tx.tax_withheld
+                                                    " ({} tax withheld and {} taxable income)",
+                                                    tx.tax_tx.tax_withheld,
+                                                    tx.tax_tx.taxable_income
                                                 )
                                             } else {
                                                 "".to_string()
@@ -91,6 +98,8 @@ impl OutputType {
         let mut keys: BTreeSet<_> = start.keys().collect();
         keys.extend(end.keys());
 
+        let mut total_start = Money::from_dollars(0);
+        let mut total_end = Money::from_dollars(0);
         for key in keys {
             let start_value = start
                 .get(&key)
@@ -100,8 +109,24 @@ impl OutputType {
                 .get(&key)
                 .context(format!("Provided end snapshot doesn't contain {:?}", key))?;
 
-            println!("  {} = {} => {}", key.0, start_value, end_value);
+            total_start = total_start + *start_value;
+            total_end = total_end + *end_value;
+
+            println!(
+                "  {} = {} => {} ({})",
+                key.0,
+                start_value,
+                end_value,
+                *end_value - *start_value
+            );
         }
+        println!("");
+        println!(
+            "  TOTAL NW: {} => {} ({})",
+            total_start,
+            total_end,
+            total_end - total_start
+        );
         Ok(())
     }
 

@@ -45,10 +45,10 @@ fn main() -> Result<()> {
             let (range, mut model) = config
                 .build_model()
                 .context("Failed to build model from configs")?;
-            let out = model.run(range).context("failed to run model")?;
+            let out = model.run(range.clone()).context("failed to run model")?;
             cmd_opts
                 .output_format
-                .output(out)
+                .output(out, &range)
                 .context("failed to display model output")
         }
         Cmd::Print => {
