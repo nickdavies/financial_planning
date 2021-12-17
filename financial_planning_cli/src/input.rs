@@ -304,9 +304,18 @@ impl FlowRaw {
                 .end
                 .build(times_table)
                 .context("Failed to convert end time")?,
-            frequency: self.frequency.parse().context("")?,
-            value: self.value.build(lookup_tables).context("")?,
-            tax_policy: self.tax.try_into().context("")?,
+            frequency: self
+                .frequency
+                .parse()
+                .context("Failed to convert frequency")?,
+            value: self
+                .value
+                .build(lookup_tables)
+                .context("Failed to convert value")?,
+            tax_policy: self
+                .tax
+                .try_into()
+                .context("Failed to convert tax policy")?,
         })
     }
 }
