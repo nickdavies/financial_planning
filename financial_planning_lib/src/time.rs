@@ -1,6 +1,7 @@
 use strum_macros::EnumString;
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, EnumString)]
+#[strum(ascii_case_insensitive)]
 pub enum Month {
     January,
     February,
@@ -125,6 +126,7 @@ impl Months {
 }
 
 #[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, EnumString)]
+#[strum(ascii_case_insensitive)]
 pub enum Frequency {
     Monthly,
     Quarterly,
