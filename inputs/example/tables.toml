@@ -24,3 +24,25 @@ yearly_rate = "7"
 start = "retirement"
 end = { year = 3000, month = "January" }
 yearly_rate = "4"
+
+# An estimate of the value of Omnicorp stock at each year.
+# We assume RSU growth slows down over time.
+[["Omnicorp RSUs"]]
+start = { year = 2022, month = "January" }
+end = { year = 2023, month = "January" }
+dollars = 50
+
+[["Omnicorp RSUs"]]
+start = { year = 2023, month = "January" }
+end = { year = 2024, month = "January" }
+dollars = 80
+
+[["Omnicorp RSUs"]]
+start = { year = 2024, month = "January" }
+end = { year = 2025, month = "January" }
+dollars = 110
+
+[["Omnicorp RSUs"]]
+start = { year = 2025, month = "January" }
+end = { year = 2026, month = "January" }
+dollars = 130
