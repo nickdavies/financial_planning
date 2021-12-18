@@ -192,6 +192,7 @@ impl<'a, 'b: 'a> CategoryModel<'a, 'b> {
             for tx in months_txns.values() {
                 self.category_value.apply_tx(tx);
             }
+            self.category_value.check_bound()?;
             all_transactions.insert(
                 time.month.clone(),
                 MonthlyReport {

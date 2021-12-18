@@ -8,6 +8,8 @@ use thousands::Separable;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Money(i64);
 
+const MONEY_ZERO: Money = Money(0);
+
 impl Money {
     pub fn from_dollars(amount: i64) -> Self {
         Self(amount * 100)
@@ -255,6 +257,38 @@ impl<'a> CategoryValue<'a> {
 
     pub fn apply_tx(&mut self, tx: &Tx) {
         self.1 = self.1 + tx.amount;
+    }
+
+    pub fn check_bound(&self) -> Result<()> {
+        match &self.0.bound {
+            Some(bound) => match bound {
+                CategoryBound::MustNotGoBelowZero => {
+                    if self.value() < MONEY_ZERO {
+                        Err(anyhow!(
+                            "Category {} went below zero ({}) while having bound {:?}",
+                            self.name().0,
+                            self.value(),
+                            bound
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                }
+                CategoryBound::MustNotGoAboveZero => {
+                    if self.value() > MONEY_ZERO {
+                        Err(anyhow!(
+                            "Category {} went above zero ({}) while having bound {:?}",
+                            self.name().0,
+                            self.value(),
+                            bound
+                        ))
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            None => Ok(()),
+        }
     }
 }
 
