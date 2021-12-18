@@ -5,7 +5,9 @@ use std::str::FromStr;
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
-use financial_planning_lib::asset::{Asset, AssetName, Category, CategoryName, Money, Rate};
+use financial_planning_lib::asset::{
+    Asset, AssetName, Category, CategoryBound, CategoryName, Money, Rate,
+};
 use financial_planning_lib::events::{BuildFlows, EventName, HousePurchase};
 use financial_planning_lib::flow::{
     FixedFlow, Flow, FlowName, FlowValue, RateFlow, RateTableFlow, TableFlow, UnitsTableFlow,
@@ -74,7 +76,7 @@ impl TryFrom<AnnualTaxPolicyRaw> for Box<dyn AnnualTaxPolicy> {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PlanCommon {
-    pub categories: Vec<String>,
+    pub categories: Vec<CategoryTableRaw>,
     pub tax_category: String,
     pub assets_file: PathBuf,
     pub flows_file: PathBuf,
@@ -582,6 +584,29 @@ impl LookupTables {
     }
 }
 
+#[derive(Clone, Debug, Deserialize)]
+pub enum CategoryBoundRaw {
+    #[serde(rename = "must_not_go_below_zero")]
+    MustNotGoBelowZero,
+    #[serde(rename = "must_not_go_above_zero")]
+    MustNotGoAboveZero,
+}
+
+impl Into<CategoryBound> for CategoryBoundRaw {
+    fn into(self: CategoryBoundRaw) -> CategoryBound {
+        match self {
+            CategoryBoundRaw::MustNotGoBelowZero => CategoryBound::MustNotGoBelowZero,
+            CategoryBoundRaw::MustNotGoAboveZero => CategoryBound::MustNotGoAboveZero,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct CategoryTableRaw {
+    name: String,
+    bound: Option<CategoryBoundRaw>,
+}
+
 #[derive(Debug)]
 pub struct Config {
     plan: Plan,
@@ -593,10 +618,13 @@ pub struct Config {
 }
 
 impl Config {
-    fn build_categories(listed_categories: &[String], assets: Assets) -> Result<Vec<Category>> {
+    fn build_categories(
+        categories_raw: Vec<CategoryTableRaw>,
+        assets: Assets,
+    ) -> Result<Vec<Category>> {
         let mut cat_map = BTreeMap::new();
-        for category in listed_categories {
-            cat_map.insert(category.clone(), Vec::new());
+        for category in &categories_raw {
+            cat_map.insert(category.name.clone(), Vec::new());
         }
 
         for (asset_name, asset) in assets.assets.into_iter() {
@@ -608,20 +636,26 @@ impl Config {
                     return Err(anyhow!(
                         "Asset found with category \"{}\" which isn't listed in categories ({:?})",
                         asset.category,
-                        listed_categories,
+                        cat_map.keys(),
                     ));
                 }
             }
         }
 
-        Ok(cat_map
-            .into_iter()
-            .map(|(name, assets)| Category::from_assets(CategoryName(name), assets))
-            .collect())
+        let mut categories = Vec::new();
+        for category_raw in categories_raw.into_iter() {
+            let assets = cat_map.remove(&category_raw.name).unwrap();
+            categories.push(Category::from_assets(
+                CategoryName(category_raw.name),
+                assets,
+                category_raw.bound.map(|b| b.into()),
+            ));
+        }
+        Ok(categories)
     }
 
     pub fn build_model(self) -> Result<(TimeRange<Year>, Model)> {
-        let categories = Self::build_categories(&self.plan.common.categories, self.assets)
+        let categories = Self::build_categories(self.plan.common.categories.clone(), self.assets)
             .context("Failed to build categories")?;
 
         let mut flows = self

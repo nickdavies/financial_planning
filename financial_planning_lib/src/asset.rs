@@ -212,14 +212,29 @@ pub struct Tx {
 pub struct CategoryName(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
+pub enum CategoryBound {
+    MustNotGoBelowZero,
+    MustNotGoAboveZero,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct Category {
     pub name: CategoryName,
     pub assets: Vec<Asset>,
+    pub bound: Option<CategoryBound>,
 }
 
 impl Category {
-    pub fn from_assets(name: CategoryName, assets: Vec<Asset>) -> Self {
-        Category { name, assets }
+    pub fn from_assets(
+        name: CategoryName,
+        assets: Vec<Asset>,
+        bound: Option<CategoryBound>,
+    ) -> Self {
+        Category {
+            name,
+            assets,
+            bound,
+        }
     }
 
     pub fn value<'a>(&'a self) -> CategoryValue<'a> {
