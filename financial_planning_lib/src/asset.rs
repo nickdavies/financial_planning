@@ -43,7 +43,7 @@ impl std::fmt::Display for Money {
             "${}{}",
             self.as_dollars().separate_with_commas(),
             if remainder != 0 {
-                format!(".{:02}", remainder)
+                format!(".{:02}", remainder.abs())
             } else {
                 "".to_string()
             }
@@ -184,7 +184,7 @@ impl std::fmt::Display for Rate {
             "{}{}%",
             self.0 / RATE_SCALE,
             if remainder != 0 {
-                format!(".{:02}", remainder)
+                format!(".{:02}", remainder.abs())
             } else {
                 "".to_string()
             }
@@ -260,6 +260,10 @@ mod test {
         assert_eq!(m.as_dollars(), 1234);
         assert_eq!(format!("{}", m), "$1,234.56");
 
+        let m = Money::from_cents(-123456);
+        assert_eq!(m.as_dollars(), -1234);
+        assert_eq!(format!("{}", m), "$-1,234.56");
+
         assert_eq!(Money::from_cents(100), Money::from_dollars(1));
         assert_ne!(Money::from_cents(101), Money::from_dollars(1));
 
@@ -306,6 +310,10 @@ mod test {
         let r = Rate(12345678);
         assert_eq!(r.as_percent(), 12);
         assert_eq!("12.345678%".to_string(), format!("{}", r));
+
+        let r = Rate(-12345678);
+        assert_eq!(r.as_percent(), -12);
+        assert_eq!("-12.345678%".to_string(), format!("{}", r));
 
         Ok(())
     }
