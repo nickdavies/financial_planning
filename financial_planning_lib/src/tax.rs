@@ -237,7 +237,8 @@ mod test {
                 .value_at(
                     &flow.start,
                     &flow,
-                    &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
+                    &Category::from_assets(CategoryName("unittest".to_string()), vec![], None)
+                        .value(),
                 )
                 .unwrap(),
             delta,

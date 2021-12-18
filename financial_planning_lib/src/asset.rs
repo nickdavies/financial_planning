@@ -472,7 +472,7 @@ mod test {
 
     #[test]
     fn test_category_basics() -> Result<()> {
-        let c = Category::from_assets(CategoryName("test1".to_string()), vec![]);
+        let c = Category::from_assets(CategoryName("test1".to_string()), vec![], None);
 
         assert_eq!(c.name, CategoryName("test1".to_string()));
         assert!(c.assets.is_empty());
@@ -496,7 +496,7 @@ mod test {
             },
         ];
 
-        let c = Category::from_assets(CategoryName("test2".to_string()), assets.clone());
+        let c = Category::from_assets(CategoryName("test2".to_string()), assets.clone(), None);
         assert_eq!(c.name, CategoryName("test2".to_string()));
         assert_eq!(c.assets, assets);
 
@@ -524,7 +524,7 @@ mod test {
             },
         ];
 
-        let c = Category::from_assets(CategoryName("test2".to_string()), assets.clone());
+        let c = Category::from_assets(CategoryName("test2".to_string()), assets.clone(), None);
         assert_eq!(c.name, CategoryName("test2".to_string()));
         assert_eq!(c.assets, assets);
 
