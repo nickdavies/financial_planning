@@ -186,7 +186,8 @@ mod test {
                         vec![Asset {
                             name: AssetName("unit test asset".to_string()),
                             value: asset_value,
-                        }]
+                        }],
+                        None
                     )
                     .value(),
                 )
@@ -249,7 +250,7 @@ mod test {
 
         let out = f
             .calculate_transaction(
-                &Category::from_assets(CategoryName("unittest".to_string()), vec![]).value(),
+                &Category::from_assets(CategoryName("unittest".to_string()), vec![], None).value(),
                 &f.start,
             )
             .unwrap();

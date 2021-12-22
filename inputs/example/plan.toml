@@ -26,7 +26,12 @@ standard_deduction = 25100
 # of money there is growing at X%. To transfer between things you will
 # need to make a once off flow to subtract from one and add to another
 # tax exempt.
-categories = ["cash", "401k", "uninvested"]
+categories = [
+  { name = "cash", bound = "must_not_go_below_zero" },
+  { name = "401k", bound = "must_not_go_below_zero" },
+  { name = "uninvested" },
+]
+
 # Which category should tax debt/refund flows to into/out of
 tax_category = "cash"
 

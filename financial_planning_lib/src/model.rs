@@ -192,6 +192,7 @@ impl<'a, 'b: 'a> CategoryModel<'a, 'b> {
             for tx in months_txns.values() {
                 self.category_value.apply_tx(tx);
             }
+            self.category_value.check_bound()?;
             all_transactions.insert(
                 time.month.clone(),
                 MonthlyReport {
@@ -214,7 +215,7 @@ mod test {
 
     use itertools::enumerate;
 
-    use crate::asset::{Asset, AssetName, Rate};
+    use crate::asset::{Asset, AssetName, CategoryBound, Rate};
     use crate::flow::FixedFlow;
     use crate::tax::{ConstantTaxPolicy, FixedRateTaxPolicy};
     use crate::time::{Frequency, Month, Time, TimeNext};
@@ -336,6 +337,7 @@ mod test {
                 name: AssetName("a1".to_string()),
                 value: Money::from_dollars(123),
             }],
+            None,
         );
         let c2 = Category::from_assets(
             CategoryName("c2".to_string()),
@@ -343,6 +345,7 @@ mod test {
                 name: AssetName("a1".to_string()),
                 value: Money::from_dollars(456),
             }],
+            None,
         );
 
         let tax_policy = FixedRateTaxPolicy::new(Rate::from_percent(35), Money::from_dollars(3000));
@@ -667,6 +670,7 @@ mod test {
                 name: AssetName("unit test asset".to_string()),
                 value: Money::from_dollars(123),
             }],
+            None,
         );
 
         let mut distant_flow = test_flow(
@@ -725,5 +729,34 @@ mod test {
                 (vec![1, 20, 300], vec!["0", "1", "2"]),  // Dec
             ],
         )
+    }
+
+    #[test]
+    fn test_category_bounds() -> Result<()> {
+        let cat = Category::from_assets(
+            CategoryName("unittest".to_string()),
+            vec![Asset {
+                name: AssetName("unit test asset".to_string()),
+                value: Money::from_dollars(-100),
+            }],
+            Some(CategoryBound::MustNotGoAboveZero),
+        );
+
+        let flows = vec![test_flow(
+            0,
+            Month::January,
+            Frequency::Monthly,
+            Money::from_dollars(50),
+        )];
+
+        let mut cat_model = CategoryModel {
+            category_value: &mut cat.value(),
+            flows: &flows,
+        };
+
+        match cat_model.run(Year(2021)) {
+            Ok(_) => Err(anyhow!("Model should have returned Err")),
+            Err(_) => Ok(()),
+        }
     }
 }
