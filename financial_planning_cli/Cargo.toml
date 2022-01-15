@@ -7,8 +7,6 @@ edition = "2021"
 
 [dependencies]
 maplit = "1.0.2"
-toml = "0.5.8"
-serde = { version = "1.0.130", features = ["derive"]}
 structopt = "0.3"
 anyhow = "1.0.45"
 itertools = "0.10.1"

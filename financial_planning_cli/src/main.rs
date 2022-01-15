@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use structopt::StructOpt;
 
-mod input;
+use financial_planning_lib::input;
+
 mod output;
 
 #[derive(Debug, StructOpt)]

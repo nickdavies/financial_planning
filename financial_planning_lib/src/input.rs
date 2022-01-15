@@ -5,20 +5,20 @@ use std::str::FromStr;
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
 
-use financial_planning_lib::asset::{
+use crate::asset::{
     Asset, AssetName, Category, CategoryBound, CategoryName, Money, Rate,
 };
-use financial_planning_lib::events::{BuildFlows, EventName, HousePurchase};
-use financial_planning_lib::flow::{
+use crate::events::{BuildFlows, EventName, HousePurchase};
+use crate::flow::{
     FixedFlow, Flow, FlowName, FlowValue, RateFlow, RateTableFlow, TableFlow, UnitsTableFlow,
 };
-use financial_planning_lib::lookup_table::LookupTable;
-use financial_planning_lib::model::Model;
-use financial_planning_lib::tax::{
+use crate::lookup_table::LookupTable;
+use crate::model::Model;
+use crate::tax::{
     AnnualTaxPolicy, ConstantTaxPolicy, FixedRateTaxPolicy, NoWithholding, PartiallyTaxed,
     TaxExempt, TaxPolicy,
 };
-use financial_planning_lib::time::{Time, TimeRange, Year};
+use crate::time::{Time, TimeRange, Year};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -739,3 +739,4 @@ pub fn read_configs(plan_file: &Path) -> Result<Config> {
         plan,
     })
 }
+

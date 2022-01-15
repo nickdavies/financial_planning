@@ -9,6 +9,8 @@ strum_macros = { version = "0.23.1" }
 strum = "0.20.0"
 anyhow = "1.0.45"
 itertools = "0.10.1"
+serde = { version = "1.0.130", features = ["derive"]}
+toml = "0.5.8"
 
 [dev-dependencies]
 maplit = "1.0.2"
