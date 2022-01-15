@@ -3,4 +3,5 @@
 members = [
     "financial_planning_lib",
     "financial_planning_cli",
+    "financial_planning_web",
 ]

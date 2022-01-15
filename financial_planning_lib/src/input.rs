@@ -695,43 +695,47 @@ impl Config {
     }
 }
 
-fn load_subfile<T>(name: &str, plan_file: &Path, relative: &Path) -> Result<T>
-where
-    for<'a> T: serde::Deserialize<'a>,
-{
-    let subfile_path = plan_file
-        .parent()
-        .context("Failed to remove filename from provided plan config path")?
-        .join(&relative);
+pub trait FileLoader {
+    fn load(&self, path: &Path) -> Result<String>;
 
-    Ok(toml::from_str(
-        &std::fs::read_to_string(&subfile_path)
-            .context(format!("Failed to read {} file contents", name))?,
-    )
-    .context(format!("Failed to parse {} config", name))?)
+    fn load_subfile<T>(&self, name: &str, plan_file: &Path, relative: &Path) -> Result<T>
+    where
+        for<'a> T: serde::Deserialize<'a>,
+    {
+        let subfile_path = plan_file
+            .parent()
+            .context("Failed to remove filename from provided plan config path")?
+            .join(&relative);
+
+        Ok(toml::from_str(
+            &self.load(&subfile_path)
+                .context(format!("Failed to read {} file contents", name))?,
+        )
+        .context(format!("Failed to parse {} config", name))?)
+    }
 }
 
-pub fn read_configs(plan_file: &Path) -> Result<Config> {
+pub fn read_configs<FL: FileLoader>(plan_file: &Path, loader: FL) -> Result<Config> {
     let plan: Plan = toml::from_str(
-        &std::fs::read_to_string(plan_file).context("Failed to read plan file contents")?,
+        &loader.load(plan_file).context("Failed to read plan file contents")?,
     )
     .context("Failed to parse plan config")?;
 
     let times_table = match &plan.common.times_file {
-        Some(file) => load_subfile("times", plan_file, &file)?,
+        Some(file) => loader.load_subfile("times", plan_file, &file)?,
         None => TimesTable::default(),
     };
     let lookup_tables = match &plan.common.tables_file {
-        Some(file) => LookupTables::build(load_subfile("tables", plan_file, &file)?, &times_table)
+        Some(file) => LookupTables::build(loader.load_subfile("tables", plan_file, &file)?, &times_table)
             .context("failed to build lookup tables")?,
         None => BTreeMap::new(),
     };
 
     Ok(Config {
-        assets: load_subfile("assets", plan_file, &plan.common.assets_file)?,
-        flows: load_subfile("flows", plan_file, &plan.common.flows_file)?,
+        assets: loader.load_subfile("assets", plan_file, &plan.common.assets_file)?,
+        flows: loader.load_subfile("flows", plan_file, &plan.common.flows_file)?,
         events: match &plan.common.events_file {
-            Some(file) => load_subfile("events", plan_file, &file)?,
+            Some(file) => loader.load_subfile("events", plan_file, &file)?,
             None => Events::default(),
         },
         times_table,

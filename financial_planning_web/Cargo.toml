@@ -1,18 +1,18 @@
 [package]
-name = "financial_planning_cli"
+name = "financial_planning_web"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-maplit = "1.0.2"
-structopt = "0.3"
+actix-web = "3"
+actix-web-httpauth = "0.5.1"
+actix-files = "0.5.0"
+actix-multipart = "0.3.0"
 anyhow = "1.0.45"
-itertools = "0.10.1"
-
+toml = "0.5.8"
+serde = { version = "1.0.130", features = ["derive"]}
+sha2 = "0.10.1"
+futures-util = "0.3"
 financial_planning_lib = { path = "../financial_planning_lib" }
-financial_planning_web = { path = "../financial_planning_web", optional = true}
-
-[features]
-webserver = ["financial_planning_web"]

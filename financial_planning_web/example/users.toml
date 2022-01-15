@@ -1,0 +1,3 @@
+[users]
+# password is password
+test_user = "somesalt:5d5e792708bfa15f0ab42e817b4e69379777d2722e0529dfb031c0b847db137d"
